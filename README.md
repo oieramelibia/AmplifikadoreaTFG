@@ -1,0 +1,1 @@
+cmake --build build -G "Vistual Studio 17 2022" 
