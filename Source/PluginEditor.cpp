@@ -28,6 +28,18 @@ AudioPluginAudioProcessorEditor::AudioPluginAudioProcessorEditor(AudioPluginAudi
     driveLabel.attachToComponent(&driveSlider, false);
     addAndMakeVisible(driveLabel);
 
+    // Sag slideraren konfiguerazioa
+    sagSlider.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
+    sagSlider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 80, 20);
+    sagSlider.setRange(0.0, 10.0, 0.1);
+    sagSlider.setValue(5.0);
+    addAndMakeVisible(sagSlider);
+
+    sagLabel.setText("SAG", juce::dontSendNotification);
+    sagLabel.setJustificationType(juce::Justification::centred);
+    sagLabel.attachToComponent(&sagSlider, false);
+    addAndMakeVisible(sagLabel);
+
     // Master slideraren konfigurazioa
     masterSlider.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
     masterSlider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 80, 20);
@@ -82,6 +94,8 @@ AudioPluginAudioProcessorEditor::AudioPluginAudioProcessorEditor(AudioPluginAudi
     // Kontrolak prozesadorearen parametroekin konektatzen ditugu
     channelAttachment.reset(new juce::AudioProcessorValueTreeState::ComboBoxAttachment(
         processorRef.getAPVTS(), "channel", channelSelector));
+    sagAttachment.reset(new juce::AudioProcessorValueTreeState::SliderAttachment(
+        processorRef.getAPVTS(), "sag", sagSlider));
     driveAttachment.reset(new juce::AudioProcessorValueTreeState::SliderAttachment(
         processorRef.getAPVTS(), "drive", driveSlider));
     masterAttachment.reset(new juce::AudioProcessorValueTreeState::SliderAttachment(
@@ -161,12 +175,17 @@ void AudioPluginAudioProcessorEditor::resized()
     bounds.reduce(40, 20); // Albo-marjinak
 
     // Espazioa 5 kontrolentzat zatitzen dugu
-    auto sliderWidth = bounds.getWidth() / 5;
+    auto sliderWidth = bounds.getWidth() / 6;
 
     // Drive (distortsio moduan bakarrik ikusgai)
     auto driveBounds = bounds.removeFromLeft(sliderWidth).reduced(10);
     driveBounds.removeFromTop(25); // Etiketarentzako espazioa
     driveSlider.setBounds(driveBounds);
+
+    //Sag
+    auto sagBounds = bounds.removeFromLeft(sliderWidth).reduced(10);
+    sagBounds.removeFromTop(25);
+    sagSlider.setBounds(sagBounds);
 
     // Master
     auto masterBounds = bounds.removeFromLeft(sliderWidth).reduced(10);

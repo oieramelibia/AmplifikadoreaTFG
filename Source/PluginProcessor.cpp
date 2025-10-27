@@ -38,6 +38,13 @@ juce::AudioProcessorValueTreeState::ParameterLayout AudioPluginAudioProcessor::c
         juce::NormalisableRange<float>(1.0f, 20.0f, 0.1f),
         5.0f));
 
+	// Tube sag efektuaren kantitatea
+    layout.add(std::make_unique<juce::AudioParameterFloat>(
+        "sag",
+        "Sag",
+        juce::NormalisableRange<float>(0.0f, 10.0f, 0.1f),
+		5.0f));
+
     // Master bolumena (0tik 100era %)
     layout.add(std::make_unique<juce::AudioParameterFloat>(
         "master",
@@ -193,6 +200,20 @@ void AudioPluginAudioProcessor::updateFilters()
     *rightChannelFilters.get<HighShelf>().coefficients = *trebleCoefs;
 }
 
+//Sag kalkulatzeko metodoa
+
+float AudioPluginAudioProcessor::tubeSag(float x, float threshold)
+{
+    float absX = std::abs(x);
+    if (absX > threshold)
+    {
+        float excess = absX - threshold;
+        float compressed = threshold + excess * 0.65f;
+        return (x > 0.0f) ? compressed : -compressed;
+    }
+    return x;
+}
+
 // *** METODO ZAHARRA (distortsioa oversampling gabe) ***
 /*
 void AudioPluginAudioProcessor::applyDistortion(juce::AudioBuffer<float>& buffer)
@@ -221,6 +242,32 @@ void AudioPluginAudioProcessor::applyDistortion(juce::AudioBuffer<float>& buffer
     }
 }
 */
+
+void AudioPluginAudioProcessor::applySag(juce::dsp::AudioBlock<float>& block)
+{
+    float sag = apvts.getRawParameterValue("sag")->load();
+
+    float sagAmount = sag / 10.0f;
+
+    if(sagAmount < 0.01f)
+		return;
+
+    float sagThreshold = 0.7f - (sagAmount * 0.2f);
+
+    for (size_t channel = 0; channel < block.getNumChannels(); ++channel)
+    {
+        auto* channelData = block.getChannelPointer(channel);
+
+        for (size_t sample = 0; sample < block.getNumSamples(); ++sample)
+        {
+            float x = channelData[sample];
+
+            x = tubeSag(x, sagThreshold);
+
+            channelData[sample] = x;
+        }
+    }
+}
 
 // Oversampling-dun distortsio metodoa
 void AudioPluginAudioProcessor::applyDistortionOversampled(juce::dsp::AudioBlock<float>& block)
@@ -276,6 +323,9 @@ void AudioPluginAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     // Hautatutako kanalaren balioa eskuratzen dugu
     int channelIndex = static_cast<int>(apvts.getRawParameterValue("channel")->load());
     bool isDistortion = (channelIndex == 1);
+
+    juce::dsp::AudioBlock<float> sagBlock(buffer);
+    applySag(sagBlock);
 
     // Distortsio moduan bagaude, OVERSAMPLING aplikatu
     if (isDistortion)

@@ -56,6 +56,8 @@ private:
     using Filter = juce::dsp::IIR::Filter<float>;
     using FilterCoefs = juce::dsp::IIR::Coefficients<float>;
 
+	float tubeSag(float x, float threshold);
+
     juce::dsp::ProcessorChain<Filter, Filter, Filter> leftChannelFilters;
     juce::dsp::ProcessorChain<Filter, Filter, Filter> rightChannelFilters;
 
@@ -79,7 +81,8 @@ private:
 
     // Metodo laguntzaileak
     void updateFilters();
-    void applyDistortion(juce::AudioBuffer<float>& buffer);
+    //void applyDistortion(juce::AudioBuffer<float>& buffer);
+	void applySag(juce::dsp::AudioBlock<float>& block);
     void applyDistortionOversampled(juce::dsp::AudioBlock<float>& block);
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(AudioPluginAudioProcessor)

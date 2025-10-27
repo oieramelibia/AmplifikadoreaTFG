@@ -24,6 +24,10 @@ private:
     juce::Slider driveSlider;
     juce::Label driveLabel;
 
+	// Sag sliderra
+	juce::Slider sagSlider;
+	juce::Label sagLabel;
+
     // EQ kontrolentzako sliderrak
     juce::Slider masterSlider;
     juce::Slider bassSlider;
@@ -39,6 +43,7 @@ private:
     // Kontrolak parametroekin konektatzeko attachmentak
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> channelAttachment;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> driveAttachment;
+	std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> sagAttachment;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> masterAttachment;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> bassAttachment;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> midAttachment;
