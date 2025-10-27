@@ -1,1 +1,1 @@
-cmake --build build -G "Vistual Studio 17 2022" 
+cmake --build build -G "Visual Studio 17 2022" 
