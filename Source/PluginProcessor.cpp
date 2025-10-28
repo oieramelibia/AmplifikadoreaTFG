@@ -345,24 +345,24 @@ void AudioPluginAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     int channelIndex = static_cast<int>(apvts.getRawParameterValue("channel")->load());
     bool isDistortion = (channelIndex == 1);
 
-    juce::dsp::AudioBlock<float> sagBlock(buffer);
-    applySag(sagBlock);
 
-    // Distortsio moduan bagaude, OVERSAMPLING aplikatu
+    // Buffer osoaren AudioBlock bat sortu
+    juce::dsp::AudioBlock<float> block(buffer);
+
+    // UPSAMPLE: 48kHz → 384kHz (8x)
+    auto oversampledBlock = oversampler.processSamplesUp(block);
+
     if (isDistortion)
     {
-        // Buffer osoaren AudioBlock bat sortu
-        juce::dsp::AudioBlock<float> block(buffer);
-
-        // UPSAMPLE: 48kHz → 384kHz (8x)
-        auto oversampledBlock = oversampler.processSamplesUp(block);
-
         // DISTORTSIOA APLIKATU oversample egindako seinaleari (aliasing gabe)
         applyDistortionOversampled(oversampledBlock);
-
-        // DOWNSAMPLE: 384kHz → 48kHz (antialiasing filtro automatikoarekin)
-        oversampler.processSamplesDown(block);
     }
+
+	// SAG APLIKATU oversample egindako seinaleari
+    applySag(oversampledBlock);
+
+    // DOWNSAMPLE: 384kHz → 48kHz (antialiasing filtro automatikoarekin)
+    oversampler.processSamplesDown(block);
 
     // EQ aplikatu (distortsioaren ondoren)
     updateFilters();
