@@ -182,6 +182,12 @@ void AudioPluginAudioProcessor::updateFilters()
     const float trebleFreq = 5000.0f; // Akutuak 5 kHz-tan zentratuta
     const float Q = 0.707f;           // Q shelf eta peak filtroetarako
 
+    // High-pass sub-baxuak kentzeko benetako transformadoreak bezala
+    auto highPassCoefs = FilterCoefs::makeHighPass(sampleRate, 75.0f, 0.707f);
+
+    // Low-pass leuna altu-altuak baratetzeko, benetako balbulak bezala
+    auto lowPassCoefs = FilterCoefs::makeLowPass(sampleRate, 8000.0f, 0.5f);
+
     // Banda bakoitzeko koefizienteak
     auto bassCoefs = FilterCoefs::makeLowShelf(sampleRate, bassFreq, Q,
         juce::Decibels::decibelsToGain(bassGain));
@@ -191,13 +197,18 @@ void AudioPluginAudioProcessor::updateFilters()
         juce::Decibels::decibelsToGain(trebleGain));
 
     // Koefizienteak aplikatzen ditugu
+
+    *leftChannelFilters.get<LowPass>().coefficients = *lowPassCoefs;
     *leftChannelFilters.get<LowShelf>().coefficients = *bassCoefs;
     *leftChannelFilters.get<Peak>().coefficients = *midCoefs;
     *leftChannelFilters.get<HighShelf>().coefficients = *trebleCoefs;
+    *leftChannelFilters.get<HighPass>().coefficients = *highPassCoefs;
 
+    *rightChannelFilters.get<LowPass>().coefficients = *lowPassCoefs;
     *rightChannelFilters.get<LowShelf>().coefficients = *bassCoefs;
     *rightChannelFilters.get<Peak>().coefficients = *midCoefs;
     *rightChannelFilters.get<HighShelf>().coefficients = *trebleCoefs;
+    *rightChannelFilters.get<HighPass>().coefficients = *highPassCoefs;
 }
 
 //Sag kalkulatzeko metodoa
@@ -263,6 +274,16 @@ void AudioPluginAudioProcessor::applySag(juce::dsp::AudioBlock<float>& block)
             float x = channelData[sample];
 
             x = tubeSag(x, sagThreshold);
+
+            if (sag > 5.0f) {
+                float harmonicAmount = (sag - 5.0f) / 5.0f * 0.05f;
+                x += harmonicAmount * std::sin(x * 2.0f * juce::MathConstants<float>::pi);
+            }
+
+            if (sag > 7.0f) {
+                float harmonicAmount = (sag - 7.0f) / 7.0f * 0.03f;
+                x += harmonicAmount * std::sin(x * 3.0f * juce::MathConstants<float>::pi);
+            }
 
             channelData[sample] = x;
         }

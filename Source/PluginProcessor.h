@@ -58,8 +58,8 @@ private:
 
 	float tubeSag(float x, float threshold);
 
-    juce::dsp::ProcessorChain<Filter, Filter, Filter> leftChannelFilters;
-    juce::dsp::ProcessorChain<Filter, Filter, Filter> rightChannelFilters;
+    juce::dsp::ProcessorChain<Filter, Filter, Filter, Filter, Filter> leftChannelFilters;
+    juce::dsp::ProcessorChain<Filter, Filter, Filter, Filter, Filter> rightChannelFilters;
 
     // Oversampling faktorea: 2^3 = 8x 
     static constexpr int OVERSAMPLE_ORDER = 3; // 8x oversampling
@@ -74,9 +74,11 @@ private:
     // Filtroetara atzitzeko indizeak
     enum FilterIndex
     {
-        LowShelf = 0,
+		LowPass = 0,
+        LowShelf,
         Peak,
-        HighShelf
+        HighShelf,
+        HighPass
     };
 
     // Metodo laguntzaileak
