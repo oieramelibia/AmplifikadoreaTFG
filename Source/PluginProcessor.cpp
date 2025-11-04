@@ -225,45 +225,38 @@ float AudioPluginAudioProcessor::tubeSag(float x, float threshold)
     return x;
 }
 
-// *** METODO ZAHARRA (distortsioa oversampling gabe) ***
-/*
-void AudioPluginAudioProcessor::applyDistortion(juce::AudioBuffer<float>& buffer)
+float AudioPluginAudioProcessor::crossoverDistortion(float x, float amount)
 {
-    float drive = apvts.getRawParameterValue("drive")->load();
-    auto totalNumChannels = buffer.getNumChannels();
-
-    // Distortsioa ezkerreko kanalean aplikatu
-    if (totalNumChannels >= 1)
+    if (std::abs(x) < 0.05f)
     {
-        auto* channelData = buffer.getWritePointer(0);
-        for (int sample = 0; sample < buffer.getNumSamples(); ++sample)
-        {
-            channelData[sample] = std::tanh(channelData[sample] * drive) / std::tanh(drive);
-        }
+        // Zona de crossover no-lineal (push-pull clase AB)
+        float sign = (x > 0.0f) ? 1.0f : -1.0f;
+        return sign * std::pow(std::abs(x) / 0.05f, 1.0f + amount * 0.5f) * 0.05f;
     }
-
-    // Distortsioa eskuineko kanalean aplikatu
-    if (totalNumChannels >= 2)
-    {
-        auto* channelData = buffer.getWritePointer(1);
-        for (int sample = 0; sample < buffer.getNumSamples(); ++sample)
-        {
-            channelData[sample] = std::tanh(channelData[sample] * drive) / std::tanh(drive);
-        }
-    }
+    return x;
 }
-*/
 
-void AudioPluginAudioProcessor::applySag(juce::dsp::AudioBlock<float>& block)
+float AudioPluginAudioProcessor::gridCurrent(float x, float threshold)
 {
-    float sag = apvts.getRawParameterValue("sag")->load();
+    float absX = std::abs(x);
+    if (absX > threshold)
+    {
+        // Compresión agresiva por conducción de rejilla
+        float excess = absX - threshold;
+        float compressed = threshold + excess * 0.2f;
+        return (x > 0.0f) ? compressed : -compressed;
+    }
+    return x;
+}
 
-    float sagAmount = sag / 10.0f;
+void AudioPluginAudioProcessor::applySag(juce::dsp::AudioBlock<float>& block, float powerAmpAmount)
+{
 
-    if(sagAmount < 0.01f)
+    if(powerAmpAmount < 0.01f)
 		return;
 
-    float sagThreshold = 0.7f - (sagAmount * 0.2f);
+    float sagThreshold = 0.75f - (powerAmpAmount * 0.25f);
+    float gridThreshold = 0.85f - (powerAmpAmount * 0.15f);
 
     for (size_t channel = 0; channel < block.getNumChannels(); ++channel)
     {
@@ -273,15 +266,32 @@ void AudioPluginAudioProcessor::applySag(juce::dsp::AudioBlock<float>& block)
         {
             float x = channelData[sample];
 
+            // 1. Bias shift (aumenta cuando la etapa trabaja duro)
+            x += powerAmpAmount * 0.05f;
+
+            // 2. Crossover distortion (clase AB push-pull)
+            if (powerAmpAmount > 0.3f)
+            {
+                float crossAmount = (powerAmpAmount - 0.3f) * 0.6f;
+                x = crossoverDistortion(x, crossAmount);
+            }
+
+            // 3. SAG compression (caída de tensión de fuente)
             x = tubeSag(x, sagThreshold);
 
-            if (sag > 5.0f) {
-                float harmonicAmount = (sag - 5.0f) / 5.0f * 0.05f;
+            // 4. Grid current (conducción de rejilla)
+            if (powerAmpAmount > 0.6f)
+                x = gridCurrent(x, gridThreshold);
+
+            // 5. Armónicos pares (transformador de salida)
+            if (powerAmpAmount > 0.4f) {
+                float harmonicAmount = (powerAmpAmount - 0.4f) * 0.06f;
                 x += harmonicAmount * std::sin(x * 2.0f * juce::MathConstants<float>::pi);
             }
 
-            if (sag > 7.0f) {
-                float harmonicAmount = (sag - 7.0f) / 7.0f * 0.03f;
+            // 6. Armónicos impares (válvulas trabajando al límite)
+            if (powerAmpAmount > 0.7f) {
+                float harmonicAmount = (powerAmpAmount - 0.7f) * 0.04f;
                 x += harmonicAmount * std::sin(x * 3.0f * juce::MathConstants<float>::pi);
             }
 
@@ -344,7 +354,7 @@ void AudioPluginAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     // Hautatutako kanalaren balioa eskuratzen dugu
     int channelIndex = static_cast<int>(apvts.getRawParameterValue("channel")->load());
     bool isDistortion = (channelIndex == 1);
-
+    float masterGain = apvts.getRawParameterValue("master")->load();
 
     // Buffer osoaren AudioBlock bat sortu
     juce::dsp::AudioBlock<float> block(buffer);
@@ -358,8 +368,18 @@ void AudioPluginAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         applyDistortionOversampled(oversampledBlock);
     }
 
-	// SAG APLIKATU oversample egindako seinaleari
-    applySag(oversampledBlock);
+    if (masterGain > 0.3f)
+    {
+        float powerAmpAmount = std::pow((masterGain - 0.3f) / 0.7f, 1.2f);
+
+        // Sag (compresión de fuente + bias shift + crossover + grid current)
+        applySag(oversampledBlock, powerAmpAmount);
+
+        // Saturación de válvulas de potencia (EL34)
+        //applyPowerAmpSaturation(oversampledBlock, powerAmpAmount);
+    }
+
+	
 
     // DOWNSAMPLE: 384kHz → 48kHz (antialiasing filtro automatikoarekin)
     oversampler.processSamplesDown(block);
@@ -401,7 +421,6 @@ void AudioPluginAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     }
 
     // Master irabazia aplikatu
-    float masterGain = apvts.getRawParameterValue("master")->load();
     buffer.applyGain(masterGain);
 }
 

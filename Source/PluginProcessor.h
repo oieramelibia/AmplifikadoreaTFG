@@ -57,16 +57,18 @@ private:
     using FilterCoefs = juce::dsp::IIR::Coefficients<float>;
 
 	float tubeSag(float x, float threshold);
+    float crossoverDistortion(float x, float amount);
+    float gridCurrent(float x, float threshold);
 
     juce::dsp::ProcessorChain<Filter, Filter, Filter, Filter, Filter> leftChannelFilters;
     juce::dsp::ProcessorChain<Filter, Filter, Filter, Filter, Filter> rightChannelFilters;
 
-    // Oversampling faktorea: 2^3 = 8x 
-    static constexpr int OVERSAMPLE_ORDER = 3; // 8x oversampling
+    // Oversampling faktorea: 2^2 = 8x 
+    static constexpr int OVERSAMPLE_ORDER = 2; // 8x oversampling
 
     juce::dsp::Oversampling<float> oversampler{
         2,  // Kanal kopuru maximoa (estereoa)
-        OVERSAMPLE_ORDER,  // Ordena: 2^3 = 8x
+        OVERSAMPLE_ORDER,  // Ordena: 2^2 = 4x
         juce::dsp::Oversampling<float>::filterHalfBandPolyphaseIIR,
         true  // Latentzia minimoa erabili
     };
@@ -84,7 +86,7 @@ private:
     // Metodo laguntzaileak
     void updateFilters();
     //void applyDistortion(juce::AudioBuffer<float>& buffer);
-	void applySag(juce::dsp::AudioBlock<float>& block);
+	void applySag(juce::dsp::AudioBlock<float>& block, float powerAmpAmount);
     void applyDistortionOversampled(juce::dsp::AudioBlock<float>& block);
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(AudioPluginAudioProcessor)
