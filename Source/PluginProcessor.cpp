@@ -167,6 +167,30 @@ void AudioPluginAudioProcessor::releaseResources()
     // Erreprodukzioa gelditzerakoan, baliabideak askatzen ditugu beharrezkoa bada
 }
 
+float AudioPluginAudioProcessor::valveDistortion(float x, float drive)
+{
+    x *= drive;
+
+    // Asimetría de válvula (bias shift)
+    float asymmetry = 0.1f;
+    x += asymmetry;
+
+    // Waveshaping de válvula (más duro que tanh)
+    if (x > 0.0f)
+    {
+        // Ciclo positivo: compresión progresiva
+        float compressed = x / (1.0f + x * 0.8f);
+        return compressed;
+    }
+    else
+    {
+        // Ciclo negativo: más abrupto
+        float compressed = x / (1.0f + std::abs(x) * 1.2f);
+        return compressed - asymmetry * 0.5f;
+    }
+}
+
+
 // Oversampling-dun distortsio metodoa
 void AudioPluginAudioProcessor::applyDistortionOversampled(juce::dsp::AudioBlock<float>& block)
 {
@@ -180,8 +204,9 @@ void AudioPluginAudioProcessor::applyDistortionOversampled(juce::dsp::AudioBlock
         // Waveshaping (tanh) aplikatu lagin bakoitzari
         for (size_t sample = 0; sample < block.getNumSamples(); ++sample)
         {
-            // Distortsio leunaren formula (soft clipping)
-            channelData[sample] = std::tanh(channelData[sample] * drive) / std::tanh(drive);
+
+			float x = channelData[sample];
+            channelData[sample] = valveDistortion(x, drive);
         }
     }
 }
