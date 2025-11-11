@@ -56,7 +56,7 @@ private:
     using Filter = juce::dsp::IIR::Filter<float>;
     using FilterCoefs = juce::dsp::IIR::Coefficients<float>;
 
-	float tubeSag(float x, float threshold);
+    float tubeSag(float x, float threshold);
     float crossoverDistortion(float x, float amount);
     float gridCurrent(float x, float threshold);
 
@@ -76,7 +76,7 @@ private:
     // Filtroetara atzitzeko indizeak
     enum FilterIndex
     {
-		LowPass = 0,
+        LowPass = 0,
         LowShelf,
         Peak,
         HighShelf,
@@ -85,8 +85,8 @@ private:
 
     // Metodo laguntzaileak
     void updateFilters();
-    //void applyDistortion(juce::AudioBuffer<float>& buffer);
-	void applySag(juce::dsp::AudioBlock<float>& block, float powerAmpAmount);
+    void applyPowerAmpSaturation(juce::dsp::AudioBlock<float>& block, float amount);
+    void applySag(juce::dsp::AudioBlock<float>& block, float powerAmpAmount);
     void applyDistortionOversampled(juce::dsp::AudioBlock<float>& block);
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(AudioPluginAudioProcessor)

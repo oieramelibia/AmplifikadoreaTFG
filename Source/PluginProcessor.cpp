@@ -38,12 +38,12 @@ juce::AudioProcessorValueTreeState::ParameterLayout AudioPluginAudioProcessor::c
         juce::NormalisableRange<float>(1.0f, 20.0f, 0.1f),
         5.0f));
 
-	// Tube sag efektuaren kantitatea
+    // Tube sag efektuaren kantitatea
     layout.add(std::make_unique<juce::AudioParameterFloat>(
         "sag",
         "Sag",
         juce::NormalisableRange<float>(0.0f, 10.0f, 0.1f),
-		5.0f));
+        5.0f));
 
     // Master bolumena (0tik 100era %)
     layout.add(std::make_unique<juce::AudioParameterFloat>(
@@ -167,48 +167,23 @@ void AudioPluginAudioProcessor::releaseResources()
     // Erreprodukzioa gelditzerakoan, baliabideak askatzen ditugu beharrezkoa bada
 }
 
-void AudioPluginAudioProcessor::updateFilters()
+// Oversampling-dun distortsio metodoa
+void AudioPluginAudioProcessor::applyDistortionOversampled(juce::dsp::AudioBlock<float>& block)
 {
-    auto sampleRate = getSampleRate();
+    float drive = apvts.getRawParameterValue("drive")->load();
 
-    // Parametroen balioak eskuratzen ditugu
-    float bassGain = apvts.getRawParameterValue("bass")->load();
-    float midGain = apvts.getRawParameterValue("mid")->load();
-    float trebleGain = apvts.getRawParameterValue("treble")->load();
+    // Kanal bakoitza prozesatu
+    for (size_t channel = 0; channel < block.getNumChannels(); ++channel)
+    {
+        auto* channelData = block.getChannelPointer(channel);
 
-    // Mozketako maiztasunak 
-    const float bassFreq = 100.0f;    // Baxuak 100 Hz-tan zentratuta
-    const float midFreq = 1000.0f;    // Erdi-maiztasunak 1 kHz-tan zentratuta
-    const float trebleFreq = 5000.0f; // Akutuak 5 kHz-tan zentratuta
-    const float Q = 0.707f;           // Q shelf eta peak filtroetarako
-
-    // High-pass sub-baxuak kentzeko benetako transformadoreak bezala
-    auto highPassCoefs = FilterCoefs::makeHighPass(sampleRate, 75.0f, 0.707f);
-
-    // Low-pass leuna altu-altuak baratetzeko, benetako balbulak bezala
-    auto lowPassCoefs = FilterCoefs::makeLowPass(sampleRate, 8000.0f, 0.5f);
-
-    // Banda bakoitzeko koefizienteak
-    auto bassCoefs = FilterCoefs::makeLowShelf(sampleRate, bassFreq, Q,
-        juce::Decibels::decibelsToGain(bassGain));
-    auto midCoefs = FilterCoefs::makePeakFilter(sampleRate, midFreq, Q,
-        juce::Decibels::decibelsToGain(midGain));
-    auto trebleCoefs = FilterCoefs::makeHighShelf(sampleRate, trebleFreq, Q,
-        juce::Decibels::decibelsToGain(trebleGain));
-
-    // Koefizienteak aplikatzen ditugu
-
-    *leftChannelFilters.get<LowPass>().coefficients = *lowPassCoefs;
-    *leftChannelFilters.get<LowShelf>().coefficients = *bassCoefs;
-    *leftChannelFilters.get<Peak>().coefficients = *midCoefs;
-    *leftChannelFilters.get<HighShelf>().coefficients = *trebleCoefs;
-    *leftChannelFilters.get<HighPass>().coefficients = *highPassCoefs;
-
-    *rightChannelFilters.get<LowPass>().coefficients = *lowPassCoefs;
-    *rightChannelFilters.get<LowShelf>().coefficients = *bassCoefs;
-    *rightChannelFilters.get<Peak>().coefficients = *midCoefs;
-    *rightChannelFilters.get<HighShelf>().coefficients = *trebleCoefs;
-    *rightChannelFilters.get<HighPass>().coefficients = *highPassCoefs;
+        // Waveshaping (tanh) aplikatu lagin bakoitzari
+        for (size_t sample = 0; sample < block.getNumSamples(); ++sample)
+        {
+            // Distortsio leunaren formula (soft clipping)
+            channelData[sample] = std::tanh(channelData[sample] * drive) / std::tanh(drive);
+        }
+    }
 }
 
 //Sag kalkulatzeko metodoa
@@ -252,8 +227,8 @@ float AudioPluginAudioProcessor::gridCurrent(float x, float threshold)
 void AudioPluginAudioProcessor::applySag(juce::dsp::AudioBlock<float>& block, float powerAmpAmount)
 {
 
-    if(powerAmpAmount < 0.01f)
-		return;
+    if (powerAmpAmount < 0.01f)
+        return;
 
     float sagThreshold = 0.75f - (powerAmpAmount * 0.25f);
     float gridThreshold = 0.85f - (powerAmpAmount * 0.15f);
@@ -300,23 +275,106 @@ void AudioPluginAudioProcessor::applySag(juce::dsp::AudioBlock<float>& block, fl
     }
 }
 
-// Oversampling-dun distortsio metodoa
-void AudioPluginAudioProcessor::applyDistortionOversampled(juce::dsp::AudioBlock<float>& block)
+void AudioPluginAudioProcessor::applyPowerAmpSaturation(juce::dsp::AudioBlock<float>& block, float amount)
 {
-    float drive = apvts.getRawParameterValue("drive")->load();
+    // Umbral de clipping (EL34 push-pull típico)
+    // Baja progresivamente con más master para saturación temprana
+    float threshold = 0.75f - (amount * 0.2f);
 
-    // Kanal bakoitza prozesatu
     for (size_t channel = 0; channel < block.getNumChannels(); ++channel)
     {
         auto* channelData = block.getChannelPointer(channel);
 
-        // Waveshaping (tanh) aplikatu lagin bakoitzari
         for (size_t sample = 0; sample < block.getNumSamples(); ++sample)
         {
-            // Distortsio leunaren formula (soft clipping)
-            channelData[sample] = std::tanh(channelData[sample] * drive) / std::tanh(drive);
+            float x = channelData[sample];
+
+            // 1. Boost previo (simula la ganancia de la etapa de potencia)
+            x *= (1.0f + amount * 0.6f);
+
+            // 2. Asimetría característica de push-pull clase AB
+            float asymmetry = 0.07f * amount;
+            x += asymmetry;
+
+            // 3. Waveshaping asimétrico estilo EL34
+            if (x > threshold)
+            {
+                float excess = x - threshold;
+                // Ciclo positivo: compresión suave con tanh
+                float softness = 1.5f + amount * 0.8f;
+                x = threshold + std::tanh(excess * softness) / std::tanh(softness) * 0.25f;
+            }
+            else if (x < -threshold * 1.08f) // Ciclo negativo clips antes (más británico)
+            {
+                float excess = -x - threshold * 1.08f;
+                // Ciclo negativo: más duro y agresivo
+                x = -(threshold * 1.08f + excess / (1.0f + excess * (2.2f + amount * 0.6f)));
+            }
+
+            // 4. Compensar DC offset generado por asimetría
+            x -= asymmetry * 0.35f;
+
+            // 5. Armónicos pares (transformador de salida británico)
+            if (amount > 0.5f)
+            {
+                float harmonics = 0.018f * (amount - 0.5f);
+                x += harmonics * std::sin(x * 2.0f * juce::MathConstants<float>::pi);
+            }
+
+            // 6. Armónicos impares (EL34 al límite)
+            if (amount > 0.8f)
+            {
+                float oddHarmonics = 0.012f * (amount - 0.8f);
+                x += oddHarmonics * std::sin(x * 3.0f * juce::MathConstants<float>::pi);
+            }
+
+            channelData[sample] = x;
         }
     }
+}
+
+void AudioPluginAudioProcessor::updateFilters()
+{
+    auto sampleRate = getSampleRate();
+
+    // Parametroen balioak eskuratzen ditugu
+    float bassGain = apvts.getRawParameterValue("bass")->load();
+    float midGain = apvts.getRawParameterValue("mid")->load();
+    float trebleGain = apvts.getRawParameterValue("treble")->load();
+
+    // Mozketako maiztasunak 
+    const float bassFreq = 100.0f;    // Baxuak 100 Hz-tan zentratuta
+    const float midFreq = 1000.0f;    // Erdi-maiztasunak 1 kHz-tan zentratuta
+    const float trebleFreq = 5000.0f; // Akutuak 5 kHz-tan zentratuta
+    const float Q = 0.707f;           // Q shelf eta peak filtroetarako
+
+    // High-pass sub-baxuak kentzeko benetako transformadoreak bezala
+    auto highPassCoefs = FilterCoefs::makeHighPass(sampleRate, 75.0f, 0.707f);
+
+    // Low-pass leuna altu-altuak baratetzeko, benetako balbulak bezala
+    auto lowPassCoefs = FilterCoefs::makeLowPass(sampleRate, 8000.0f, 0.5f);
+
+    // Banda bakoitzeko koefizienteak
+    auto bassCoefs = FilterCoefs::makeLowShelf(sampleRate, bassFreq, Q,
+        juce::Decibels::decibelsToGain(bassGain));
+    auto midCoefs = FilterCoefs::makePeakFilter(sampleRate, midFreq, Q,
+        juce::Decibels::decibelsToGain(midGain));
+    auto trebleCoefs = FilterCoefs::makeHighShelf(sampleRate, trebleFreq, Q,
+        juce::Decibels::decibelsToGain(trebleGain));
+
+    // Koefizienteak aplikatzen ditugu
+
+    *leftChannelFilters.get<LowPass>().coefficients = *lowPassCoefs;
+    *leftChannelFilters.get<LowShelf>().coefficients = *bassCoefs;
+    *leftChannelFilters.get<Peak>().coefficients = *midCoefs;
+    *leftChannelFilters.get<HighShelf>().coefficients = *trebleCoefs;
+    *leftChannelFilters.get<HighPass>().coefficients = *highPassCoefs;
+
+    *rightChannelFilters.get<LowPass>().coefficients = *lowPassCoefs;
+    *rightChannelFilters.get<LowShelf>().coefficients = *bassCoefs;
+    *rightChannelFilters.get<Peak>().coefficients = *midCoefs;
+    *rightChannelFilters.get<HighShelf>().coefficients = *trebleCoefs;
+    *rightChannelFilters.get<HighPass>().coefficients = *highPassCoefs;
 }
 
 bool AudioPluginAudioProcessor::isBusesLayoutSupported(const BusesLayout& layouts) const
@@ -376,10 +434,10 @@ void AudioPluginAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         applySag(oversampledBlock, powerAmpAmount);
 
         // Saturación de válvulas de potencia (EL34)
-        //applyPowerAmpSaturation(oversampledBlock, powerAmpAmount);
+        applyPowerAmpSaturation(oversampledBlock, powerAmpAmount);
     }
 
-	
+
 
     // DOWNSAMPLE: 384kHz → 48kHz (antialiasing filtro automatikoarekin)
     oversampler.processSamplesDown(block);
