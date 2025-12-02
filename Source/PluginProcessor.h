@@ -90,7 +90,6 @@ private:
     void updateFilters();
     float valveDistortion(float x, float drive);
     void applyDistortionOversampled(juce::dsp::AudioBlock<float>& block);
-    void applySag(juce::dsp::AudioBlock<float>& block, float powerAmpAmount);
     void applyPowerAmpSaturation(juce::dsp::AudioBlock<float>& block, float amount);
     
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(AudioPluginAudioProcessor)

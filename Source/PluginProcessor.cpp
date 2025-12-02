@@ -295,13 +295,12 @@ float AudioPluginAudioProcessor::gridCurrent(float x, float threshold)
     return x;
 }
 
-void AudioPluginAudioProcessor::applySag(juce::dsp::AudioBlock<float>& block, float powerAmpAmount)
+void AudioPluginAudioProcessor::applyPowerAmpSaturation(juce::dsp::AudioBlock<float>& block, float amount)
 {
-    if (powerAmpAmount < 0.01f)
-        return;
+    if (amount < 0.01f) return;
 
-    float sagThreshold = 0.75f - (powerAmpAmount * 0.25f);
-    float gridThreshold = 0.85f - (powerAmpAmount * 0.15f);
+    float sagThreshold = 0.75f - (amount * 0.2f);
+    float gridThreshold = 0.85f - (amount * 0.15f);
 
     for (size_t channel = 0; channel < block.getNumChannels(); ++channel)
     {
@@ -311,89 +310,40 @@ void AudioPluginAudioProcessor::applySag(juce::dsp::AudioBlock<float>& block, fl
         {
             float x = channelData[sample];
 
-            // 1. Bias shift 
-            x += powerAmpAmount * 0.05f;
+            // 1. Boost + bias shift
+            x *= (1.0f + amount * 0.6f);
+            x += amount * 0.06f;
 
-            // 2. Crossover distortsioa (AB klaseko push-pull)
-            if (powerAmpAmount > 0.3f)
-            {
-                float crossAmount = (powerAmpAmount - 0.3f) * 0.6f;
-                x = crossoverDistortion(x, crossAmount);
-            }
+            // 2. Crossover distortsioa
+            if (amount > 0.3f)
+                x = crossoverDistortion(x, (amount - 0.3f) * 0.6f);
 
             // 3. SAG konpresioa
             x = tubeSag(x, sagThreshold);
 
             // 4. Grid current
-            if (powerAmpAmount > 0.7f)
+            if (amount > 0.7f)
                 x = gridCurrent(x, gridThreshold);
 
-            // 5. Armoniko bikoitiak
-            if (powerAmpAmount > 0.4f) {
-                float harmonicAmount = (powerAmpAmount - 0.4f) * 0.06f;
-                x += harmonicAmount * std::sin(x * 2.0f * juce::MathConstants<float>::pi);
-            }
-
-            // 6. Armoniko bakoitiak
-            if (powerAmpAmount > 0.7f) {
-                float harmonicAmount = (powerAmpAmount - 0.7f) * 0.04f;
-                x += harmonicAmount * std::sin(x * 3.0f * juce::MathConstants<float>::pi);
-            }
-
-            channelData[sample] = x;
-        }
-    }
-}
-
-void AudioPluginAudioProcessor::applyPowerAmpSaturation(juce::dsp::AudioBlock<float>& block, float amount)
-{
-    // (EL34 push-pull)
-    float threshold = 0.75f - (amount * 0.2f);
-
-    for (size_t channel = 0; channel < block.getNumChannels(); ++channel)
-    {
-        auto* channelData = block.getChannelPointer(channel);
-
-        for (size_t sample = 0; sample < block.getNumSamples(); ++sample)
-        {
-            float x = channelData[sample];
-
-            // 1. Boost previo
-            x *= (1.0f + amount * 0.6f);
-
-            // 2. push-pull AB klaseko asimetria
-            float asymmetry = 0.07f * amount;
-            x += asymmetry;
-
-			// 3. Waveshaping asimetrikoa (EL34 estiloa)
-            if (x > threshold)
-            {
-                float excess = x - threshold;
-				// Ziklo positibo leuna
+            // 5. Waveshaping EL34-style asikemtrikoa
+            if (x > sagThreshold) {
+                float excess = x - sagThreshold;
                 float softness = 1.5f + amount * 0.8f;
-                x = threshold + std::tanh(excess * softness) / std::tanh(softness) * 0.25f;
+                x = sagThreshold + std::tanh(excess * softness) / std::tanh(softness) * 0.25f;
             }
-            else if (x < -threshold * 1.08f) // Zikol negatibo bortitzagoa 
-            {
-                float excess = -x - threshold * 1.08f;
-                x = -(threshold * 1.08f + excess / (1.0f + excess * (2.2f + amount * 0.6f)));
-            }
-
-            // 4. DC offset konpensatzeko asimetriagatik sortua
-            x -= asymmetry * 0.35f;
-
-			// 5. Armónicos bikoitiak (EL34 ren soinu beroa)
-            if (amount > 0.5f)
-            {
-                float harmonics = 0.018f * (amount - 0.5f);
-                x += harmonics * std::sin(x * 2.0f * juce::MathConstants<float>::pi);
+            else if (x < -sagThreshold * 1.08f) {
+                float excess = -x - sagThreshold * 1.08f;
+                x = -(sagThreshold * 1.08f + excess / (1.0f + excess * (2.2f + amount * 0.6f)));
             }
 
-            // 6. Armónicos bakoitiak (EL34 limitera lan egiten)
-            if (amount > 0.8f)
-            {
-                float oddHarmonics = 0.012f * (amount - 0.8f);
-                x += oddHarmonics * std::sin(x * 3.0f * juce::MathConstants<float>::pi);
+            // 6. Armonikoak gehitu
+            if (amount > 0.4f) {
+                float h2 = 0.018f * (amount - 0.4f);
+                x += h2 * std::sin(x * 2.0f * juce::MathConstants<float>::pi);
+            }
+            if (amount > 0.7f) {
+                float h3 = 0.012f * (amount - 0.7f);
+                x += h3 * std::sin(x * 3.0f * juce::MathConstants<float>::pi);
             }
 
             channelData[sample] = x;
@@ -492,7 +442,6 @@ void AudioPluginAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         juce::dsp::AudioBlock<float> powerBlock(buffer);
         auto oversampledPowerBlock = powerAmpOversampler.processSamplesUp(powerBlock);
 
-        applySag(oversampledPowerBlock, powerAmpAmount);
         applyPowerAmpSaturation(oversampledPowerBlock, powerAmpAmount);
 
         powerAmpOversampler.processSamplesDown(powerBlock);
