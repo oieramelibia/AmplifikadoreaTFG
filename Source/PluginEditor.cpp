@@ -91,6 +91,79 @@ AudioPluginAudioProcessorEditor::AudioPluginAudioProcessorEditor(AudioPluginAudi
     trebleLabel.attachToComponent(&trebleSlider, false);
     addAndMakeVisible(trebleLabel);
 
+    // ===== CABINET CONTROLS =====
+
+    // Cabinet Mota Selektorea
+    cabinetTypeCombo.addItem("4x12 Closed", 1);
+    cabinetTypeCombo.addItem("4x12 Open", 2);
+    cabinetTypeCombo.addItem("2x12 Combo", 3);
+    cabinetTypeCombo.addItem("1x12 Small", 4);
+    cabinetTypeCombo.setSelectedId(1);
+    cabinetTypeCombo.setJustificationType(juce::Justification::centred);
+    addAndMakeVisible(cabinetTypeCombo);
+
+    cabinetTypeLabel.setText("CABINET TYPE", juce::dontSendNotification);
+    cabinetTypeLabel.setJustificationType(juce::Justification::centred);
+    addAndMakeVisible(cabinetTypeLabel);
+
+    // Load IR Botoia
+    loadIRButton.setButtonText("Load IR...");
+    loadIRButton.onClick = [this]() {
+        fileChooser = std::make_unique<juce::FileChooser>(
+            "Select an IR file...",
+            juce::File{},
+            "*.wav;*.aif;*.aiff");
+
+        auto flags = juce::FileBrowserComponent::openMode |
+            juce::FileBrowserComponent::canSelectFiles;
+
+        fileChooser->launchAsync(flags, [this](const juce::FileChooser& fc) {
+            auto file = fc.getResult();
+            if (file.existsAsFile())
+            {
+                processorRef.loadExternalIR(file);
+                updateIRControls();
+            }
+            });
+        };
+    addAndMakeVisible(loadIRButton);
+
+    // Clear IR Botoia
+    clearIRButton.setButtonText("Clear IR");
+    clearIRButton.onClick = [this]() {
+        processorRef.clearExternalIR();
+        updateIRControls();
+        };
+    addAndMakeVisible(clearIRButton);
+
+    // IR Izenaren Etiketa
+    irNameLabel.setText("No IR loaded", juce::dontSendNotification);
+    irNameLabel.setJustificationType(juce::Justification::centred);
+    irNameLabel.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
+    addAndMakeVisible(irNameLabel);
+
+    // IR Status
+    irStatusLabel.setText("", juce::dontSendNotification);
+    irStatusLabel.setJustificationType(juce::Justification::centred);
+    irStatusLabel.setFont(juce::Font(12.0f));
+    addAndMakeVisible(irStatusLabel);
+
+    // Kanpoko IR hautatzeko selektorea
+    useExternalIRToggle.setButtonText("Use External IR");
+    addAndMakeVisible(useExternalIRToggle);
+
+    useExternalIRLabel.setText("IR MODE", juce::dontSendNotification);
+    useExternalIRLabel.setJustificationType(juce::Justification::centred);
+    addAndMakeVisible(useExternalIRLabel);
+
+    // Cabinet Bypass selektorea
+    cabinetBypassToggle.setButtonText("Bypass Cabinet");
+    addAndMakeVisible(cabinetBypassToggle);
+
+    cabinetBypassLabel.setText("CABINET", juce::dontSendNotification);
+    cabinetBypassLabel.setJustificationType(juce::Justification::centred);
+    addAndMakeVisible(cabinetBypassLabel);
+
     // Kontrolak prozesadorearen parametroekin konektatzen ditugu
     channelAttachment.reset(new juce::AudioProcessorValueTreeState::ComboBoxAttachment(
         processorRef.getAPVTS(), "channel", channelSelector));
@@ -106,12 +179,58 @@ AudioPluginAudioProcessorEditor::AudioPluginAudioProcessorEditor(AudioPluginAudi
         processorRef.getAPVTS(), "mid", midSlider));
     trebleAttachment.reset(new juce::AudioProcessorValueTreeState::SliderAttachment(
         processorRef.getAPVTS(), "treble", trebleSlider));
+    cabinetTypeAttachment.reset(new juce::AudioProcessorValueTreeState::ComboBoxAttachment(
+        processorRef.getAPVTS(), "cabinetType", cabinetTypeCombo));
+    useExternalIRAttachment.reset(new juce::AudioProcessorValueTreeState::ButtonAttachment(
+        processorRef.getAPVTS(), "useExternalIR", useExternalIRToggle));
+    cabinetBypassAttachment.reset(new juce::AudioProcessorValueTreeState::ButtonAttachment(
+        processorRef.getAPVTS(), "cabinetBypass", cabinetBypassToggle));
 
-    setSize(700, 450);
+    updateIRControls();
+
+	// Timer Hasieratu UI eguneraketak egiteko
+    startTimerHz(10); 
+
+    setSize(700, 600);
 }
 
 AudioPluginAudioProcessorEditor::~AudioPluginAudioProcessorEditor()
 {
+    stopTimer();
+}
+
+//==============================================================================
+void AudioPluginAudioProcessorEditor::timerCallback()
+{
+    updateIRControls();
+}
+
+void AudioPluginAudioProcessorEditor::updateIRControls()
+{
+    bool irLoaded = processorRef.isIRLoaded();
+    bool useExternalIR = useExternalIRToggle.getToggleState();
+
+	// IR izena eta statusa eguneratu
+    if (irLoaded)
+    {
+        irNameLabel.setText(processorRef.getCurrentIRName(),
+            juce::dontSendNotification);
+        irNameLabel.setColour(juce::Label::textColourId, juce::Colours::orange);
+        irStatusLabel.setText("IR Loaded", juce::dontSendNotification);
+        irStatusLabel.setColour(juce::Label::textColourId, juce::Colours::green);
+    }
+    else
+    {
+        irNameLabel.setText("No IR loaded", juce::dontSendNotification);
+        irNameLabel.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
+        irStatusLabel.setText("", juce::dontSendNotification);
+    }
+
+    clearIRButton.setEnabled(irLoaded);
+    useExternalIRToggle.setEnabled(irLoaded);
+
+	// Kanpoko IR erabiltzearen arabera, cabinet motaren kontrola desgaitu
+    cabinetTypeCombo.setEnabled(!useExternalIR || !irLoaded);
 }
 
 //==============================================================================
@@ -139,13 +258,27 @@ void AudioPluginAudioProcessorEditor::paint(juce::Graphics& g)
     g.setColour(juce::Colour(60, 60, 65));
     g.drawRoundedRectangle(20, 80, getWidth() - 40, 70, 10, 2);
 
-    // Kontrolen panela
+    // Kontrolen panela (AMP)
     g.setColour(juce::Colour(40, 40, 45));
-    g.fillRoundedRectangle(20, 170, getWidth() - 40, getHeight() - 190, 10);
-
-    // Panelaren ertza
+    g.fillRoundedRectangle(20, 170, getWidth() - 40, 240, 10);
     g.setColour(juce::Colour(60, 60, 65));
-    g.drawRoundedRectangle(20, 170, getWidth() - 40, getHeight() - 190, 10, 2);
+    g.drawRoundedRectangle(20, 170, getWidth() - 40, 240, 10, 2);
+
+    // Label "AMP CONTROLS"
+    g.setColour(juce::Colours::orange.darker(0.3f));
+    g.setFont(16.0f);
+    g.drawText("AMP CONTROLS", 40, 175, 150, 20, juce::Justification::left);
+
+    // Cabinet panela
+    g.setColour(juce::Colour(40, 40, 45));
+    g.fillRoundedRectangle(20, 430, getWidth() - 40, 150, 10);
+    g.setColour(juce::Colour(60, 60, 65));
+    g.drawRoundedRectangle(20, 430, getWidth() - 40, 150, 10, 2);
+
+    // Label "CABINET"
+    g.setColour(juce::Colours::orange.darker(0.3f));
+    g.setFont(16.0f);
+    g.drawText("CABINET SIMULATION", 40, 435, 200, 20, juce::Justification::left);
 
     // Kanalaren LED adierazlea
     int selectedChannel = channelSelector.getSelectedItemIndex();
@@ -168,42 +301,71 @@ void AudioPluginAudioProcessorEditor::resized()
     auto channelBounds = juce::Rectangle<int>(getWidth() / 2 - 100, 105, 200, 30);
     channelSelector.setBounds(channelBounds);
 
-    // Kontrolen area
-    auto bounds = getLocalBounds();
-    bounds.removeFromTop(190); // Izenburuarentzako eta hautatzailearentzako espazioa
-    bounds.removeFromBottom(20); // Beheko marjina
-    bounds.reduce(40, 20); // Albo-marjinak
+    // ===== AMP CONTROLS =====
+    auto ampBounds = getLocalBounds();
+    ampBounds.removeFromTop(200);
+    ampBounds.removeFromBottom(180);
+    ampBounds.reduce(40, 20);
 
-    // Espazioa 5 kontrolentzat zatitzen dugu
-    auto sliderWidth = bounds.getWidth() / 6;
+    auto sliderWidth = ampBounds.getWidth() / 6;
 
-    // Drive (distortsio moduan bakarrik ikusgai)
-    auto driveBounds = bounds.removeFromLeft(sliderWidth).reduced(10);
-    driveBounds.removeFromTop(25); // Etiketarentzako espazioa
+    // Drive
+    auto driveBounds = ampBounds.removeFromLeft(sliderWidth).reduced(10);
+    driveBounds.removeFromTop(25);
     driveSlider.setBounds(driveBounds);
 
-    //Sag
-    auto sagBounds = bounds.removeFromLeft(sliderWidth).reduced(10);
+    // Sag
+    auto sagBounds = ampBounds.removeFromLeft(sliderWidth).reduced(10);
     sagBounds.removeFromTop(25);
     sagSlider.setBounds(sagBounds);
 
     // Master
-    auto masterBounds = bounds.removeFromLeft(sliderWidth).reduced(10);
+    auto masterBounds = ampBounds.removeFromLeft(sliderWidth).reduced(10);
     masterBounds.removeFromTop(25);
     masterSlider.setBounds(masterBounds);
 
     // Bass
-    auto bassBounds = bounds.removeFromLeft(sliderWidth).reduced(10);
+    auto bassBounds = ampBounds.removeFromLeft(sliderWidth).reduced(10);
     bassBounds.removeFromTop(25);
     bassSlider.setBounds(bassBounds);
 
     // Mid
-    auto midBounds = bounds.removeFromLeft(sliderWidth).reduced(10);
+    auto midBounds = ampBounds.removeFromLeft(sliderWidth).reduced(10);
     midBounds.removeFromTop(25);
     midSlider.setBounds(midBounds);
 
     // Treble
-    auto trebleBounds = bounds.removeFromLeft(sliderWidth).reduced(10);
+    auto trebleBounds = ampBounds.removeFromLeft(sliderWidth).reduced(10);
     trebleBounds.removeFromTop(25);
     trebleSlider.setBounds(trebleBounds);
+
+    // ===== CABINET CONTROLS =====
+    auto cabinetBounds = juce::Rectangle<int>(40, 465, getWidth() - 80, 110);
+
+    // Cabinet Type y Bypass
+    auto row1 = cabinetBounds.removeFromTop(30);
+    cabinetTypeLabel.setBounds(row1.removeFromLeft(120));
+    cabinetTypeCombo.setBounds(row1.removeFromLeft(150).reduced(5, 0));
+    row1.removeFromLeft(20);
+    cabinetBypassLabel.setBounds(row1.removeFromLeft(100));
+    cabinetBypassToggle.setBounds(row1.removeFromLeft(150).reduced(5, 0));
+
+    cabinetBounds.removeFromTop(5);
+
+    // IR Mode toggle
+    auto row2 = cabinetBounds.removeFromTop(30);
+    useExternalIRLabel.setBounds(row2.removeFromLeft(120));
+    useExternalIRToggle.setBounds(row2.removeFromLeft(150).reduced(5, 0));
+    row2.removeFromLeft(20);
+    irStatusLabel.setBounds(row2.removeFromLeft(100));
+
+    cabinetBounds.removeFromTop(5);
+
+    // Load IR, Clear IR eta izena
+    auto row3 = cabinetBounds.removeFromTop(30);
+    loadIRButton.setBounds(row3.removeFromLeft(100).reduced(5, 0));
+    row3.removeFromLeft(5);
+    clearIRButton.setBounds(row3.removeFromLeft(100).reduced(5, 0));
+    row3.removeFromLeft(10);
+    irNameLabel.setBounds(row3);
 }

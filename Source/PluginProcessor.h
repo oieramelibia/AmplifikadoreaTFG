@@ -2,9 +2,11 @@
 
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_dsp/juce_dsp.h>
+#include <juce_audio_formats/juce_audio_formats.h>
 
 //==============================================================================
-class AudioPluginAudioProcessor final : public juce::AudioProcessor
+class AudioPluginAudioProcessor final : public juce::AudioProcessor,
+    private juce::AudioProcessorValueTreeState::Listener
 {
 public:
     //==============================================================================
@@ -46,8 +48,17 @@ public:
     juce::AudioProcessorValueTreeState& getAPVTS() { return apvts; }
     const juce::AudioProcessorValueTreeState& getAPVTS() const { return apvts; }
 
+    // IR-ak kargatzeko metodoak
+    void loadExternalIR(const juce::File& file);
+    void clearExternalIR();
+    juce::String getCurrentIRName() const { return currentIRName; }
+    bool isIRLoaded() const { return irLoaded; }
+
 private:
     //==============================================================================
+    // Listener para cambios en parámetros
+    void parameterChanged(const juce::String& parameterID, float newValue) override;
+
     // AudioProcessorValueTreeState parametroak kudeatzeko
     juce::AudioProcessorValueTreeState apvts;
     juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
@@ -66,16 +77,6 @@ private:
     juce::dsp::ProcessorChain<Filter, Filter, Filter, Filter, Filter> leftChannelFilters;
     juce::dsp::ProcessorChain<Filter, Filter, Filter, Filter, Filter> rightChannelFilters;
 
-    // Oversampling faktorea: 2^2 = 8x 
-    static constexpr int OVERSAMPLE_ORDER = 2; // 8x oversampling
-
-    juce::dsp::Oversampling<float> oversampler{
-        2,  // Kanal kopuru maximoa (estereoa)
-        OVERSAMPLE_ORDER,  // Ordena: 2^2 = 4x
-        juce::dsp::Oversampling<float>::filterHalfBandPolyphaseIIR,
-        true  // Latentzia minimoa erabili
-    };
-
     // Filtroetara atzitzeko indizeak
     enum FilterIndex
     {
@@ -86,11 +87,39 @@ private:
         HighPass
     };
 
+    // Kanpoko IR-a kargatzeko konboluzioa
+    juce::dsp::Convolution convolution;
+    juce::AudioBuffer<float> loadedIR;
+    double loadedIRSampleRate = 0.0;
+
+    // Kabinetea simulatzeko filtroak (IR sintetikoa)
+    juce::dsp::ProcessorChain<Filter, Filter, Filter, Filter, Filter> leftCabinetFilters;
+    juce::dsp::ProcessorChain<Filter, Filter, Filter, Filter, Filter> rightCabinetFilters;
+
+    enum CabinetFilterIndex
+    {
+        CabLowPass = 0,
+        CabPresence,
+        CabResonance1,
+        CabResonance2,
+        CabHighPass
+    };
+
+    // Cabinet egoera
+    bool irLoaded = false;
+    juce::String currentIRName = "None";
+    juce::File lastLoadedIRFile;
+
     // Metodo laguntzaileak
+    void updateCabinetFilters();
+    void createSyntheticIR();
+    void applyCabinetSimulation(juce::AudioBuffer<float>& buffer);
+    void applySyntheticCabinet(juce::AudioBuffer<float>& buffer);
     void updateFilters();
+    void reloadIRIfNeeded();
     float valveDistortion(float x, float drive);
     void applyDistortionOversampled(juce::dsp::AudioBlock<float>& block);
     void applyPowerAmpSaturation(juce::dsp::AudioBlock<float>& block, float amount);
-    
+
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(AudioPluginAudioProcessor)
 };

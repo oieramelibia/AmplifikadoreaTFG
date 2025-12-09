@@ -13,10 +13,30 @@ AudioPluginAudioProcessor::AudioPluginAudioProcessor()
     ),
     apvts(*this, nullptr, "Parameters", createParameterLayout())
 {
+    apvts.addParameterListener("cabinetType", this);
+    apvts.addParameterListener("useExternalIR", this);
 }
 
 AudioPluginAudioProcessor::~AudioPluginAudioProcessor()
 {
+    apvts.removeParameterListener("cabinetType", this);
+    apvts.removeParameterListener("useExternalIR", this);
+}
+
+// Listener
+void AudioPluginAudioProcessor::parameterChanged(const juce::String& parameterID, float newValue)
+{
+    if (parameterID == "cabinetType")
+    {
+        updateCabinetFilters();
+    }
+    else if (parameterID == "useExternalIR")
+    {
+        if (newValue < 0.5f)
+        {
+            updateCabinetFilters();
+        }
+    }
 }
 
 //==============================================================================
@@ -72,6 +92,26 @@ juce::AudioProcessorValueTreeState::ParameterLayout AudioPluginAudioProcessor::c
         "Treble",
         juce::NormalisableRange<float>(-12.0f, 12.0f, 0.1f),
         0.0f));
+
+    // Cabinet mota
+    layout.add(std::make_unique<juce::AudioParameterChoice>(
+        "cabinetType",
+        "Cabinet Type",
+        juce::StringArray{ "4x12 Closed", "4x12 Open", "2x12 Combo", "1x12 Small" },
+        0));
+
+	// Cabinet bypass
+    layout.add(std::make_unique<juce::AudioParameterBool>(
+        "cabinetBypass",
+        "Cabinet Bypass",
+        false));
+
+	// Kanpoko IR-a erabiltzea edo sintetikoa
+    layout.add(std::make_unique<juce::AudioParameterBool>(
+        "useExternalIR",
+        "Use External IR",
+        false));
+
 
     return layout;
 }
@@ -148,21 +188,36 @@ void AudioPluginAudioProcessor::prepareToPlay(double sampleRate, int samplesPerB
     spec.maximumBlockSize = samplesPerBlock;
     spec.numChannels = getTotalNumOutputChannels();
 
-    // Inicializar ambos oversamplers
+    // Oversaplerrak hasieratu
     preampOversampler.initProcessing(static_cast<size_t>(samplesPerBlock));
     preampOversampler.reset();
 
     powerAmpOversampler.initProcessing(static_cast<size_t>(samplesPerBlock));
     powerAmpOversampler.reset();
 
-    // EQ filtroak prestatu jatorrizko sample rate-an
+    // EQ filtroak prestatu
     juce::dsp::ProcessSpec monoSpec = spec;
     monoSpec.numChannels = 1;
 
     leftChannelFilters.prepare(monoSpec);
     rightChannelFilters.prepare(monoSpec);
-
     updateFilters();
+
+	// Konboluzioa prestatu
+    convolution.prepare(spec);
+
+    // Preparar filtros de cabinet
+    leftCabinetFilters.prepare(monoSpec);
+    rightCabinetFilters.prepare(monoSpec);
+
+    // IR berriz kargatu behar bada (sample rate aldaketa)
+    reloadIRIfNeeded();
+
+    if (!irLoaded)
+    {
+        createSyntheticIR();
+        updateCabinetFilters();
+    }
 }
 
 void AudioPluginAudioProcessor::releaseResources()
@@ -351,6 +406,274 @@ void AudioPluginAudioProcessor::applyPowerAmpSaturation(juce::dsp::AudioBlock<fl
     }
 }
 
+void AudioPluginAudioProcessor::reloadIRIfNeeded()
+{
+    if (lastLoadedIRFile.existsAsFile() &&
+        loadedIRSampleRate != getSampleRate())
+    {
+        loadExternalIR(lastLoadedIRFile);
+    }
+}
+
+void AudioPluginAudioProcessor::createSyntheticIR()
+{
+    int cabinetType = static_cast<int>(apvts.getRawParameterValue("cabinetType")->load());
+    auto sampleRate = getSampleRate();
+
+    // Configuraciones por tipo de cabinet
+    struct CabinetConfig {
+        float lowPassFreq;
+        float presenceFreq;
+        float presenceGain;
+        float resonance1Freq;
+        float resonance1Q;
+        float resonance1Gain;
+        float resonance2Freq;
+        float resonance2Q;
+        float resonance2Gain;
+        float highPassFreq;
+    };
+
+    CabinetConfig configs[] = {
+        // 4x12 Closed (más graves, menos brillo)
+        { 5500.0f, 3000.0f, 4.0f, 200.0f, 1.5f, 2.0f, 800.0f, 2.0f, -1.5f, 80.0f },
+
+        // 4x12 Open (más abierto, más aire)
+        { 6500.0f, 3500.0f, 3.0f, 180.0f, 1.2f, 1.5f, 1200.0f, 1.8f, -1.0f, 75.0f },
+
+        // 2x12 Combo (medios presentes)
+        { 6000.0f, 2800.0f, 5.0f, 220.0f, 1.8f, 2.5f, 900.0f, 2.2f, -2.0f, 85.0f },
+
+        // 1x12 Small (más medios, menos graves)
+        { 5000.0f, 2500.0f, 6.0f, 250.0f, 2.0f, 3.0f, 750.0f, 2.5f, -2.5f, 90.0f }
+    };
+
+    CabinetConfig& config = configs[cabinetType];
+
+    // Low-pass principal (simula el roll-off del altavoz)
+    auto lowPassCoefs = FilterCoefs::makeLowPass(
+        sampleRate,
+        config.lowPassFreq,
+        0.6f
+    );
+
+    // Presence peak (el "brillo" característico)
+    auto presenceCoefs = FilterCoefs::makePeakFilter(
+        sampleRate,
+        config.presenceFreq,
+        0.8f,
+        juce::Decibels::decibelsToGain(config.presenceGain)
+    );
+
+    // Primera resonancia (cuerpo del altavoz)
+    auto resonance1Coefs = FilterCoefs::makePeakFilter(
+        sampleRate,
+        config.resonance1Freq,
+        config.resonance1Q,
+        juce::Decibels::decibelsToGain(config.resonance1Gain)
+    );
+
+    // Segunda resonancia (muesca en medios)
+    auto resonance2Coefs = FilterCoefs::makePeakFilter(
+        sampleRate,
+        config.resonance2Freq,
+        config.resonance2Q,
+        juce::Decibels::decibelsToGain(config.resonance2Gain)
+    );
+
+    // High-pass (elimina subsónicos)
+    auto highPassCoefs = FilterCoefs::makeHighPass(
+        sampleRate,
+        config.highPassFreq,
+        0.707f
+    );
+
+    // Aplicar a ambos canales
+    *leftCabinetFilters.get<CabLowPass>().coefficients = *lowPassCoefs;
+    *leftCabinetFilters.get<CabPresence>().coefficients = *presenceCoefs;
+    *leftCabinetFilters.get<CabResonance1>().coefficients = *resonance1Coefs;
+    *leftCabinetFilters.get<CabResonance2>().coefficients = *resonance2Coefs;
+    *leftCabinetFilters.get<CabHighPass>().coefficients = *highPassCoefs;
+
+    *rightCabinetFilters.get<CabLowPass>().coefficients = *lowPassCoefs;
+    *rightCabinetFilters.get<CabPresence>().coefficients = *presenceCoefs;
+    *rightCabinetFilters.get<CabResonance1>().coefficients = *resonance1Coefs;
+    *rightCabinetFilters.get<CabResonance2>().coefficients = *resonance2Coefs;
+    *rightCabinetFilters.get<CabHighPass>().coefficients = *highPassCoefs;
+}
+
+void AudioPluginAudioProcessor::updateCabinetFilters()
+{
+    createSyntheticIR();
+}
+
+void AudioPluginAudioProcessor::loadExternalIR(const juce::File& file)
+{
+    if (!file.existsAsFile())
+    {
+        juce::AlertWindow::showMessageBoxAsync(
+            juce::AlertWindow::WarningIcon,
+            "Error",
+            "El archivo IR no existe");
+        return;
+    }
+
+    juce::AudioFormatManager formatManager;
+    formatManager.registerBasicFormats();
+
+    std::unique_ptr<juce::AudioFormatReader> reader(formatManager.createReaderFor(file));
+
+    if (reader == nullptr)
+    {
+        juce::AlertWindow::showMessageBoxAsync(
+            juce::AlertWindow::WarningIcon,
+            "Error",
+            "No se pudo leer el archivo IR");
+        return;
+    }
+
+    // Crear buffer temporal
+    juce::AudioBuffer<float> tempBuffer(
+        static_cast<int>(reader->numChannels),
+        static_cast<int>(reader->lengthInSamples)
+    );
+
+	// Fitxategia irakurri
+    reader->read(&tempBuffer, 0,
+        static_cast<int>(reader->lengthInSamples),
+        0, true, true);
+
+    // Guardar para recargas futuras
+    loadedIR = tempBuffer;
+    loadedIRSampleRate = reader->sampleRate;
+    lastLoadedIRFile = file;
+
+    // mono/stereo
+    auto stereoType = (reader->numChannels == 1)
+        ? juce::dsp::Convolution::Stereo::no
+        : juce::dsp::Convolution::Stereo::yes;
+
+	// Konoboluzioa kargatu
+    try
+    {
+        convolution.loadImpulseResponse(
+            std::move(tempBuffer),
+            reader->sampleRate,
+            stereoType,
+            juce::dsp::Convolution::Trim::yes,
+            juce::dsp::Convolution::Normalise::yes
+        );
+
+        irLoaded = true;
+        currentIRName = file.getFileNameWithoutExtension();
+
+		// useExternalIR parametroa aktibatu
+        auto param = apvts.getParameter("useExternalIR");
+        if (param != nullptr)
+        {
+            param->setValueNotifyingHost(1.0f);
+        }
+
+        DBG("IR cargada: " + currentIRName);
+    }
+    catch (const std::exception& e)
+    {
+        irLoaded = false;
+        juce::AlertWindow::showMessageBoxAsync(
+            juce::AlertWindow::WarningIcon,
+            "Error",
+            "Error al cargar IR: " + juce::String(e.what()));
+    }
+}
+
+// Ir garbitu
+void AudioPluginAudioProcessor::clearExternalIR()
+{
+    irLoaded = false;
+    currentIRName = "None";
+    lastLoadedIRFile = juce::File();
+    loadedIR.setSize(0, 0);
+
+    // Parametroa desgaitu
+    auto param = apvts.getParameter("useExternalIR");
+    if (param != nullptr)
+    {
+        param->setValueNotifyingHost(0.0f);
+    }
+
+    // Filtro sintetikoetara bueltatu
+    updateCabinetFilters();
+}
+
+void AudioPluginAudioProcessor::applyCabinetSimulation(juce::AudioBuffer<float>& buffer)
+{
+    bool bypass = apvts.getRawParameterValue("cabinetBypass")->load() > 0.5f;
+    if (bypass)
+        return;
+
+    bool useExternal = apvts.getRawParameterValue("useExternalIR")->load() > 0.5f;
+
+    if (useExternal && irLoaded)
+    {
+		// Konboluzia erabili kanpoko IRarekin
+        juce::dsp::AudioBlock<float> block(buffer);
+        juce::dsp::ProcessContextReplacing<float> context(block);
+
+        try
+        {
+            convolution.process(context);
+        }
+        catch (const std::exception& e)
+        {
+            DBG("Error en convolución: " + juce::String(e.what()));
+            applySyntheticCabinet(buffer);
+        }
+    }
+    else
+    {
+        // Usar filtros sintéticos
+        applySyntheticCabinet(buffer);
+    }
+}
+
+void AudioPluginAudioProcessor::applySyntheticCabinet(juce::AudioBuffer<float>& buffer)
+{
+    auto totalNumInputChannels = getTotalNumInputChannels();
+    auto totalNumOutputChannels = getTotalNumOutputChannels();
+
+    if (totalNumInputChannels == 1 && totalNumOutputChannels == 2)
+    {
+        // Mono a stereo
+        juce::dsp::AudioBlock<float> leftBlock(
+            buffer.getArrayOfWritePointers(), 1, buffer.getNumSamples());
+        juce::dsp::ProcessContextReplacing<float> leftContext(leftBlock);
+        leftCabinetFilters.process(leftContext);
+
+        // Copiar a canal derecho
+        buffer.copyFrom(1, 0, buffer, 0, 0, buffer.getNumSamples());
+    }
+    else if (totalNumInputChannels >= 2)
+    {
+        // Stereo: procesar cada canal
+        juce::dsp::AudioBlock<float> leftBlock(
+            buffer.getArrayOfWritePointers(), 1, buffer.getNumSamples());
+        juce::dsp::ProcessContextReplacing<float> leftContext(leftBlock);
+        leftCabinetFilters.process(leftContext);
+
+        juce::dsp::AudioBlock<float> audioBlock(buffer);
+        auto rightBlock = audioBlock.getSingleChannelBlock(1);
+        juce::dsp::ProcessContextReplacing<float> rightContext(rightBlock);
+        rightCabinetFilters.process(rightContext);
+    }
+    else
+    {
+        // Mono
+        juce::dsp::AudioBlock<float> monoBlock(buffer);
+        juce::dsp::ProcessContextReplacing<float> monoContext(monoBlock);
+        leftCabinetFilters.process(monoContext);
+    }
+}
+
 bool AudioPluginAudioProcessor::isBusesLayoutSupported(const BusesLayout& layouts) const
 {
 #if JucePlugin_IsMidiEffect
@@ -446,6 +769,9 @@ void AudioPluginAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
 
         powerAmpOversampler.processSamplesDown(powerBlock);
     }
+
+    // ===== 4. CABINET SIMULATION ===== 
+    applyCabinetSimulation(buffer);
 
     // ===== 4. MASTER VOLUME =====
     buffer.applyGain(masterGain);
