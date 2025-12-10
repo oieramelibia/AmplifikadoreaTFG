@@ -51,47 +51,40 @@ juce::AudioProcessorValueTreeState::ParameterLayout AudioPluginAudioProcessor::c
         juce::StringArray{ "Clean", "Distortion" },
         0));
 
-    // Distortsio kantitatea (distortsio kanalean bakarrik aktibo)
+    // Drive: 0 a 10, valor por defecto 5
     layout.add(std::make_unique<juce::AudioParameterFloat>(
         "drive",
         "Drive",
-        juce::NormalisableRange<float>(1.0f, 20.0f, 0.1f),
-        5.0f));
-
-    // Tube sag efektuaren kantitatea
-    layout.add(std::make_unique<juce::AudioParameterFloat>(
-        "sag",
-        "Sag",
         juce::NormalisableRange<float>(0.0f, 10.0f, 0.1f),
         5.0f));
 
-    // Master bolumena (0tik 100era %)
+    // Master: 0 a 10, valor por defecto 5
     layout.add(std::make_unique<juce::AudioParameterFloat>(
         "master",
         "Master",
-        juce::NormalisableRange<float>(0.0f, 1.0f, 0.01f),
-        0.7f));
+        juce::NormalisableRange<float>(0.0f, 10.0f, 0.1f),
+        5.0f));
 
-    // Baxuak (Low Shelf): -12dB tik +12dB ra
+    // Bass: 0 a 10, valor por defecto 5
     layout.add(std::make_unique<juce::AudioParameterFloat>(
         "bass",
         "Bass",
-        juce::NormalisableRange<float>(-12.0f, 12.0f, 0.1f),
-        0.0f));
+        juce::NormalisableRange<float>(0.0f, 10.0f, 0.1f),
+        5.0f));
 
-    // Erdi-maiztasunak (Peak): -12dB tik +12dB ra
+    // Mid: 0 a 10, valor por defecto 5
     layout.add(std::make_unique<juce::AudioParameterFloat>(
         "mid",
         "Mid",
-        juce::NormalisableRange<float>(-12.0f, 12.0f, 0.1f),
-        0.0f));
+        juce::NormalisableRange<float>(0.0f, 10.0f, 0.1f),
+        5.0f));
 
-    // Akutuak (High Shelf): -12dB tik +12dB ra
+    // Treble: 0 a 10, valor por defecto 5
     layout.add(std::make_unique<juce::AudioParameterFloat>(
         "treble",
         "Treble",
-        juce::NormalisableRange<float>(-12.0f, 12.0f, 0.1f),
-        0.0f));
+        juce::NormalisableRange<float>(0.0f, 10.0f, 0.1f),
+        5.0f));
 
     // Cabinet mota
     layout.add(std::make_unique<juce::AudioParameterChoice>(
@@ -100,18 +93,17 @@ juce::AudioProcessorValueTreeState::ParameterLayout AudioPluginAudioProcessor::c
         juce::StringArray{ "4x12 Closed", "4x12 Open", "2x12 Combo", "1x12 Small" },
         0));
 
-	// Cabinet bypass
+    // Cabinet bypass
     layout.add(std::make_unique<juce::AudioParameterBool>(
         "cabinetBypass",
         "Cabinet Bypass",
         false));
 
-	// Kanpoko IR-a erabiltzea edo sintetikoa
+    // Kanpoko IR-a erabiltzea edo sintetikoa
     layout.add(std::make_unique<juce::AudioParameterBool>(
         "useExternalIR",
         "Use External IR",
         false));
-
 
     return layout;
 }
@@ -225,8 +217,9 @@ void AudioPluginAudioProcessor::releaseResources()
     // Erreprodukzioa gelditzerakoan, baliabideak askatzen ditugu beharrezkoa bada
 }
 
-float AudioPluginAudioProcessor::valveDistortion(float x, float drive)
+float AudioPluginAudioProcessor::valveDistortion(float x, float driveKnob)
 {
+    float drive = 1.0f + (driveKnob / 10.0f) * 19.0f;
     x *= drive;
 
     // Balbularen asimetria(bias shift)
@@ -272,44 +265,100 @@ void AudioPluginAudioProcessor::updateFilters()
 {
     auto sampleRate = getSampleRate();
 
-    // Parametroen balioak eskuratzen ditugu
-    float bassGain = apvts.getRawParameterValue("bass")->load();
-    float midGain = apvts.getRawParameterValue("mid")->load();
-    float trebleGain = apvts.getRawParameterValue("treble")->load();
+    float bassKnob = apvts.getRawParameterValue("bass")->load();
+    float bassGain = (bassKnob - 5.0f) * 2.4f;
+    float midKnob = apvts.getRawParameterValue("mid")->load();
+	float midGain = (midKnob - 5.0f) * 2.4f;
+    float trebleKnob = apvts.getRawParameterValue("treble")->load();
+	float trebleGain = (trebleKnob - 5.0f) * 2.4f;
 
-    // Mozketako maiztasunak 
-    const float bassFreq = 100.0f;    // Baxuak 100 Hz-tan zentratuta
-    const float midFreq = 1000.0f;    // Erdi-maiztasunak 1 kHz-tan zentratuta
-    const float trebleFreq = 5000.0f; // Akutuak 5 kHz-tan zentratuta
-    const float Q = 0.707f;           // Q shelf eta peak filtroetarako
+    // ===== TONESTACK ESTILO MARSHALL =====
 
-    // High-pass sub-baxuak kentzeko benetako transformadoreak bezala
+    // 1. High-pass sub-baxuak kentzeko (transformadorea)
     auto highPassCoefs = FilterCoefs::makeHighPass(sampleRate, 75.0f, 0.707f);
 
-    // Low-pass leuna altu-altuak baratetzeko, benetako balbulak bezala
+	// 2. Low-pass leuna balbulen mugaketen ondorioz
     auto lowPassCoefs = FilterCoefs::makeLowPass(sampleRate, 8000.0f, 0.5f);
 
-    // Banda bakoitzeko koefizienteak
-    auto bassCoefs = FilterCoefs::makeLowShelf(sampleRate, bassFreq, Q,
-        juce::Decibels::decibelsToGain(bassGain));
-    auto midCoefs = FilterCoefs::makePeakFilter(sampleRate, midFreq, Q,
-        juce::Decibels::decibelsToGain(midGain));
-    auto trebleCoefs = FilterCoefs::makeHighShelf(sampleRate, trebleFreq, Q,
-        juce::Decibels::decibelsToGain(trebleGain));
+    // 3. BASS: Low shelf + interacción con mids
+    const float bassFreq = 80.0f;  // 80Hz
+    const float bassQ = 0.5f;      // Q 
 
-    // Koefizienteak aplikatzen ditugu
+    auto bassCoefs = FilterCoefs::makeLowShelf(
+        sampleRate,
+        bassFreq,
+        bassQ,
+        juce::Decibels::decibelsToGain(bassGain)
+    );
 
-    *leftChannelFilters.get<LowPass>().coefficients = *lowPassCoefs;
+    // 4. MID: Notch filter karakteristikoa (mid scoop)
+    const float midControlFreq = 800.0f;
+    const float midQ = 1.2f;  // Q 
+
+    // Mid control es inverso: sube el notch cuando bajas el control
+    // Simulamos esto con un peak que "rellena" el scoop
+    float adjustedMidGain = midGain;
+
+    // Si mid está en 0dB, dejamos el scoop natural (-3dB típico)
+    // Si mid está positivo, rellenamos el scoop
+    // Si mid está negativo, profundizamos el scoop
+    if (midGain >= 0.0f)
+    {
+        // Rellenar scoop
+        adjustedMidGain = midGain * 0.8f;  // Menos agresivo
+    }
+    else
+    {
+        // Profundizar scoop
+        adjustedMidGain = midGain * 1.3f;  // Más agresivo
+    }
+
+    auto midCoefs = FilterCoefs::makePeakFilter(
+        sampleRate,
+        midControlFreq,
+        midQ,
+        juce::Decibels::decibelsToGain(adjustedMidGain)
+    );
+
+    // 5. TREBLE: High shelf + presence bump
+    // Marshall 3-4kHz inguruan presence bump-a dauka
+    const float trebleFreq = 3500.0f; 
+    const float trebleQ = 0.7f;
+
+    auto trebleCoefs = FilterCoefs::makeHighShelf(
+        sampleRate,
+        trebleFreq,
+        trebleQ,
+        juce::Decibels::decibelsToGain(trebleGain)
+    );
+
+    // Beste high shelf bat power amp-aren feedback loop-ean
+    const float presenceFreq = 4500.0f;
+    const float presenceQ = 1.0f;
+
+    // Presence simulatua: Treble igotzerakoan
+    float presenceAmount = std::max(0.0f, trebleGain * 0.3f);
+
+    auto presenceCoefs = FilterCoefs::makeHighShelf(
+        sampleRate,
+        presenceFreq,
+        presenceQ,
+        juce::Decibels::decibelsToGain(presenceAmount)
+    );
+
+    *leftChannelFilters.get<HighPass>().coefficients = *highPassCoefs;
     *leftChannelFilters.get<LowShelf>().coefficients = *bassCoefs;
     *leftChannelFilters.get<Peak>().coefficients = *midCoefs;
     *leftChannelFilters.get<HighShelf>().coefficients = *trebleCoefs;
-    *leftChannelFilters.get<HighPass>().coefficients = *highPassCoefs;
+	*leftCabinetFilters.get<HighShelf>().coefficients = *presenceCoefs;
+    *leftChannelFilters.get<LowPass>().coefficients = *lowPassCoefs;
 
-    *rightChannelFilters.get<LowPass>().coefficients = *lowPassCoefs;
+    *rightChannelFilters.get<HighPass>().coefficients = *highPassCoefs;
     *rightChannelFilters.get<LowShelf>().coefficients = *bassCoefs;
     *rightChannelFilters.get<Peak>().coefficients = *midCoefs;
     *rightChannelFilters.get<HighShelf>().coefficients = *trebleCoefs;
-    *rightChannelFilters.get<HighPass>().coefficients = *highPassCoefs;
+	*rightCabinetFilters.get<HighShelf>().coefficients = *presenceCoefs;
+    *rightChannelFilters.get<LowPass>().coefficients = *lowPassCoefs;
 }
 
 //Sag kalkulatzeko metodoa
@@ -709,7 +758,8 @@ void AudioPluginAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     // Hautatutako kanalaren balioa eskuratzen dugu
     int channelIndex = static_cast<int>(apvts.getRawParameterValue("channel")->load());
     bool isDistortion = (channelIndex == 1);
-    float masterGain = apvts.getRawParameterValue("master")->load();
+    float masterKnob = apvts.getRawParameterValue("master")->load();
+    float masterGain = masterKnob / 10.0f;
 
     // ===== 1. PREAMP STAGE =====
     if (isDistortion)

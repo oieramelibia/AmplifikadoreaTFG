@@ -19,7 +19,7 @@ AudioPluginAudioProcessorEditor::AudioPluginAudioProcessorEditor(AudioPluginAudi
     // Drive slideraren konfigurazioa
     driveSlider.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
     driveSlider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 80, 20);
-    driveSlider.setRange(1.0, 20.0, 0.1);
+    driveSlider.setRange(0.0, 10.0, 0.1);
     driveSlider.setValue(5.0);
     addAndMakeVisible(driveSlider);
 
@@ -28,23 +28,11 @@ AudioPluginAudioProcessorEditor::AudioPluginAudioProcessorEditor(AudioPluginAudi
     driveLabel.attachToComponent(&driveSlider, false);
     addAndMakeVisible(driveLabel);
 
-    // Sag slideraren konfiguerazioa
-    sagSlider.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
-    sagSlider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 80, 20);
-    sagSlider.setRange(0.0, 10.0, 0.1);
-    sagSlider.setValue(5.0);
-    addAndMakeVisible(sagSlider);
-
-    sagLabel.setText("SAG", juce::dontSendNotification);
-    sagLabel.setJustificationType(juce::Justification::centred);
-    sagLabel.attachToComponent(&sagSlider, false);
-    addAndMakeVisible(sagLabel);
-
     // Master slideraren konfigurazioa
     masterSlider.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
     masterSlider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 80, 20);
-    masterSlider.setRange(0.0, 1.0, 0.01);
-    masterSlider.setValue(0.7);
+    masterSlider.setRange(0.0, 10.0, 0.1);
+    masterSlider.setValue(5.0);
     addAndMakeVisible(masterSlider);
 
     masterLabel.setText("MASTER", juce::dontSendNotification);
@@ -55,9 +43,8 @@ AudioPluginAudioProcessorEditor::AudioPluginAudioProcessorEditor(AudioPluginAudi
     // Baxuen slideraren konfigurazioa (Bass)
     bassSlider.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
     bassSlider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 80, 20);
-    bassSlider.setRange(-12.0, 12.0, 0.1);
-    bassSlider.setValue(0.0);
-    bassSlider.setTextValueSuffix(" dB");
+    bassSlider.setRange(0.0, 10.0, 0.1);
+    bassSlider.setValue(5.0);
     addAndMakeVisible(bassSlider);
 
     bassLabel.setText("BASS", juce::dontSendNotification);
@@ -68,9 +55,8 @@ AudioPluginAudioProcessorEditor::AudioPluginAudioProcessorEditor(AudioPluginAudi
     // Erdi-maiztasunen slideraren konfigurazioa (Mid)
     midSlider.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
     midSlider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 80, 20);
-    midSlider.setRange(-12.0, 12.0, 0.1);
-    midSlider.setValue(0.0);
-    midSlider.setTextValueSuffix(" dB");
+    midSlider.setRange(0.0, 10.0, 0.1);
+    midSlider.setValue(5.0);
     addAndMakeVisible(midSlider);
 
     midLabel.setText("MID", juce::dontSendNotification);
@@ -81,9 +67,8 @@ AudioPluginAudioProcessorEditor::AudioPluginAudioProcessorEditor(AudioPluginAudi
     // Akutuen slideraren konfigurazioa (Treble)
     trebleSlider.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
     trebleSlider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 80, 20);
-    trebleSlider.setRange(-12.0, 12.0, 0.1);
-    trebleSlider.setValue(0.0);
-    trebleSlider.setTextValueSuffix(" dB");
+    trebleSlider.setRange(0.0, 10.0, 0.1);
+    trebleSlider.setValue(5.0);
     addAndMakeVisible(trebleSlider);
 
     trebleLabel.setText("TREBLE", juce::dontSendNotification);
@@ -167,8 +152,6 @@ AudioPluginAudioProcessorEditor::AudioPluginAudioProcessorEditor(AudioPluginAudi
     // Kontrolak prozesadorearen parametroekin konektatzen ditugu
     channelAttachment.reset(new juce::AudioProcessorValueTreeState::ComboBoxAttachment(
         processorRef.getAPVTS(), "channel", channelSelector));
-    sagAttachment.reset(new juce::AudioProcessorValueTreeState::SliderAttachment(
-        processorRef.getAPVTS(), "sag", sagSlider));
     driveAttachment.reset(new juce::AudioProcessorValueTreeState::SliderAttachment(
         processorRef.getAPVTS(), "drive", driveSlider));
     masterAttachment.reset(new juce::AudioProcessorValueTreeState::SliderAttachment(
@@ -307,17 +290,12 @@ void AudioPluginAudioProcessorEditor::resized()
     ampBounds.removeFromBottom(180);
     ampBounds.reduce(40, 20);
 
-    auto sliderWidth = ampBounds.getWidth() / 6;
+    auto sliderWidth = ampBounds.getWidth() / 5;
 
     // Drive
     auto driveBounds = ampBounds.removeFromLeft(sliderWidth).reduced(10);
     driveBounds.removeFromTop(25);
     driveSlider.setBounds(driveBounds);
-
-    // Sag
-    auto sagBounds = ampBounds.removeFromLeft(sliderWidth).reduced(10);
-    sagBounds.removeFromTop(25);
-    sagSlider.setBounds(sagBounds);
 
     // Master
     auto masterBounds = ampBounds.removeFromLeft(sliderWidth).reduced(10);

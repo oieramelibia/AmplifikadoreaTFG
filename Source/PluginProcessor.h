@@ -74,8 +74,8 @@ private:
     juce::dsp::Oversampling<float> preampOversampler{ 2, 3, juce::dsp::Oversampling<float>::filterHalfBandPolyphaseIIR };
     juce::dsp::Oversampling<float> powerAmpOversampler{ 2, 3, juce::dsp::Oversampling<float>::filterHalfBandPolyphaseIIR };
 
-    juce::dsp::ProcessorChain<Filter, Filter, Filter, Filter, Filter> leftChannelFilters;
-    juce::dsp::ProcessorChain<Filter, Filter, Filter, Filter, Filter> rightChannelFilters;
+    juce::dsp::ProcessorChain<Filter, Filter, Filter, Filter, Filter, Filter> leftChannelFilters;
+    juce::dsp::ProcessorChain<Filter, Filter, Filter, Filter, Filter, Filter> rightChannelFilters;
 
     // Filtroetara atzitzeko indizeak
     enum FilterIndex
@@ -84,6 +84,7 @@ private:
         LowShelf,
         Peak,
         HighShelf,
+        Presence,
         HighPass
     };
 
