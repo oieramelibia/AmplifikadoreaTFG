@@ -51,35 +51,35 @@ juce::AudioProcessorValueTreeState::ParameterLayout AudioPluginAudioProcessor::c
         juce::StringArray{ "Clean", "Distortion" },
         0));
 
-    // Drive: 0 a 10, valor por defecto 5
+    // Drive: 0 a 10, jatorrizko balioa 5
     layout.add(std::make_unique<juce::AudioParameterFloat>(
         "drive",
         "Drive",
         juce::NormalisableRange<float>(0.0f, 10.0f, 0.1f),
         5.0f));
 
-    // Master: 0 a 10, valor por defecto 5
+    // Master: 0 a 10, jatorrizko balioa 5
     layout.add(std::make_unique<juce::AudioParameterFloat>(
         "master",
         "Master",
         juce::NormalisableRange<float>(0.0f, 10.0f, 0.1f),
         5.0f));
 
-    // Bass: 0 a 10, valor por defecto 5
+    // Bass: 0 a 10, jatorrizko balioa 5
     layout.add(std::make_unique<juce::AudioParameterFloat>(
         "bass",
         "Bass",
         juce::NormalisableRange<float>(0.0f, 10.0f, 0.1f),
         5.0f));
 
-    // Mid: 0 a 10, valor por defecto 5
+    // Mid: 0 a 10, jatorrizko balioa 5
     layout.add(std::make_unique<juce::AudioParameterFloat>(
         "mid",
         "Mid",
         juce::NormalisableRange<float>(0.0f, 10.0f, 0.1f),
         5.0f));
 
-    // Treble: 0 a 10, valor por defecto 5
+    // Treble: 0 a 10, jatorrizko balioa 5
     layout.add(std::make_unique<juce::AudioParameterFloat>(
         "treble",
         "Treble",
@@ -295,22 +295,15 @@ void AudioPluginAudioProcessor::updateFilters()
     const float midControlFreq = 800.0f;
     const float midQ = 1.2f;  // Q 
 
-    // Mid control es inverso: sube el notch cuando bajas el control
-    // Simulamos esto con un peak que "rellena" el scoop
     float adjustedMidGain = midGain;
 
-    // Si mid está en 0dB, dejamos el scoop natural (-3dB típico)
-    // Si mid está positivo, rellenamos el scoop
-    // Si mid está negativo, profundizamos el scoop
     if (midGain >= 0.0f)
     {
-        // Rellenar scoop
-        adjustedMidGain = midGain * 0.8f;  // Menos agresivo
+        adjustedMidGain = midGain * 0.8f; 
     }
     else
     {
-        // Profundizar scoop
-        adjustedMidGain = midGain * 1.3f;  // Más agresivo
+        adjustedMidGain = midGain * 1.3f;  
     }
 
     auto midCoefs = FilterCoefs::makePeakFilter(
