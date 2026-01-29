@@ -149,6 +149,34 @@ AudioPluginAudioProcessorEditor::AudioPluginAudioProcessorEditor(AudioPluginAudi
     cabinetBypassLabel.setJustificationType(juce::Justification::centred);
     addAndMakeVisible(cabinetBypassLabel);
 
+    // ===== INPUT/OUTPUT GAIN CONTROLS =====
+
+    // Input Gain Slider
+    inputGainSlider.setSliderStyle(juce::Slider::LinearVertical);
+    inputGainSlider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 60, 20);
+    inputGainSlider.setRange(-24.0, 24.0, 0.1);
+    inputGainSlider.setValue(0.0);
+    inputGainSlider.setTextValueSuffix(" dB");
+    addAndMakeVisible(inputGainSlider);
+
+    inputGainLabel.setText("INPUT", juce::dontSendNotification);
+    inputGainLabel.setJustificationType(juce::Justification::centred);
+    inputGainLabel.attachToComponent(&inputGainSlider, false);
+    addAndMakeVisible(inputGainLabel);
+
+    // Output Gain Slider
+    outputGainSlider.setSliderStyle(juce::Slider::LinearVertical);
+    outputGainSlider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 60, 20);
+    outputGainSlider.setRange(-24.0, 24.0, 0.1);
+    outputGainSlider.setValue(0.0);
+    outputGainSlider.setTextValueSuffix(" dB");
+    addAndMakeVisible(outputGainSlider);
+
+    outputGainLabel.setText("OUTPUT", juce::dontSendNotification);
+    outputGainLabel.setJustificationType(juce::Justification::centred);
+    outputGainLabel.attachToComponent(&outputGainSlider, false);
+    addAndMakeVisible(outputGainLabel);
+
     // Kontrolak prozesadorearen parametroekin konektatzen ditugu
     channelAttachment.reset(new juce::AudioProcessorValueTreeState::ComboBoxAttachment(
         processorRef.getAPVTS(), "channel", channelSelector));
@@ -169,12 +197,17 @@ AudioPluginAudioProcessorEditor::AudioPluginAudioProcessorEditor(AudioPluginAudi
     cabinetBypassAttachment.reset(new juce::AudioProcessorValueTreeState::ButtonAttachment(
         processorRef.getAPVTS(), "cabinetBypass", cabinetBypassToggle));
 
+    inputGainAttachment.reset(new juce::AudioProcessorValueTreeState::SliderAttachment(
+        processorRef.getAPVTS(), "inputGain", inputGainSlider));
+    outputGainAttachment.reset(new juce::AudioProcessorValueTreeState::SliderAttachment(
+        processorRef.getAPVTS(), "outputGain", outputGainSlider));
+
     updateIRControls();
 
-	// Timer Hasieratu UI eguneraketak egiteko
-    startTimerHz(10); 
+    // Timer Hasieratu UI eguneraketak egiteko
+    startTimerHz(10);
 
-    setSize(700, 600);
+    setSize(800, 600);
 }
 
 AudioPluginAudioProcessorEditor::~AudioPluginAudioProcessorEditor()
@@ -193,7 +226,7 @@ void AudioPluginAudioProcessorEditor::updateIRControls()
     bool irLoaded = processorRef.isIRLoaded();
     bool useExternalIR = useExternalIRToggle.getToggleState();
 
-	// IR izena eta statusa eguneratu
+    // IR izena eta statusa eguneratu
     if (irLoaded)
     {
         irNameLabel.setText(processorRef.getCurrentIRName(),
@@ -212,7 +245,7 @@ void AudioPluginAudioProcessorEditor::updateIRControls()
     clearIRButton.setEnabled(irLoaded);
     useExternalIRToggle.setEnabled(irLoaded);
 
-	// Kanpoko IR erabiltzearen arabera, cabinet motaren kontrola desgaitu
+    // Kanpoko IR erabiltzearen arabera, cabinet motaren kontrola desgaitu
     cabinetTypeCombo.setEnabled(!useExternalIR || !irLoaded);
 }
 
@@ -243,9 +276,9 @@ void AudioPluginAudioProcessorEditor::paint(juce::Graphics& g)
 
     // Kontrolen panela (AMP)
     g.setColour(juce::Colour(40, 40, 45));
-    g.fillRoundedRectangle(20, 170, getWidth() - 40, 240, 10);
+    g.fillRoundedRectangle(20, 170, getWidth() - 140, 240, 10);
     g.setColour(juce::Colour(60, 60, 65));
-    g.drawRoundedRectangle(20, 170, getWidth() - 40, 240, 10, 2);
+    g.drawRoundedRectangle(20, 170, getWidth() - 140, 240, 10, 2);
 
     // Label "AMP CONTROLS"
     g.setColour(juce::Colours::orange.darker(0.3f));
@@ -254,14 +287,25 @@ void AudioPluginAudioProcessorEditor::paint(juce::Graphics& g)
 
     // Cabinet panela
     g.setColour(juce::Colour(40, 40, 45));
-    g.fillRoundedRectangle(20, 430, getWidth() - 40, 150, 10);
+    g.fillRoundedRectangle(20, 430, getWidth() - 140, 150, 10);
     g.setColour(juce::Colour(60, 60, 65));
-    g.drawRoundedRectangle(20, 430, getWidth() - 40, 150, 10, 2);
+    g.drawRoundedRectangle(20, 430, getWidth() - 140, 150, 10, 2);
 
     // Label "CABINET"
     g.setColour(juce::Colours::orange.darker(0.3f));
     g.setFont(16.0f);
     g.drawText("CABINET SIMULATION", 40, 435, 200, 20, juce::Justification::left);
+
+    // Panel de utilidades (Input/Output Gain) - a la derecha
+    g.setColour(juce::Colour(35, 35, 40));
+    g.fillRoundedRectangle(getWidth() - 110, 80, 90, 500, 10);
+    g.setColour(juce::Colour(60, 60, 65));
+    g.drawRoundedRectangle(getWidth() - 110, 80, 90, 500, 10, 2);
+
+    // Label "UTILITY"
+    g.setColour(juce::Colours::orange.darker(0.3f));
+    g.setFont(14.0f);
+    g.drawText("UTILITY", getWidth() - 105, 85, 80, 20, juce::Justification::centred);
 
     // Kanalaren LED adierazlea
     int selectedChannel = channelSelector.getSelectedItemIndex();
@@ -288,6 +332,7 @@ void AudioPluginAudioProcessorEditor::resized()
     auto ampBounds = getLocalBounds();
     ampBounds.removeFromTop(200);
     ampBounds.removeFromBottom(180);
+    ampBounds.removeFromRight(120); // Dejar espacio para panel de utilidad
     ampBounds.reduce(40, 20);
 
     auto sliderWidth = ampBounds.getWidth() / 5;
@@ -318,7 +363,7 @@ void AudioPluginAudioProcessorEditor::resized()
     trebleSlider.setBounds(trebleBounds);
 
     // ===== CABINET CONTROLS =====
-    auto cabinetBounds = juce::Rectangle<int>(40, 465, getWidth() - 80, 110);
+    auto cabinetBounds = juce::Rectangle<int>(40, 465, getWidth() - 160, 110);
 
     // Cabinet Type y Bypass
     auto row1 = cabinetBounds.removeFromTop(30);
@@ -346,4 +391,19 @@ void AudioPluginAudioProcessorEditor::resized()
     clearIRButton.setBounds(row3.removeFromLeft(100).reduced(5, 0));
     row3.removeFromLeft(10);
     irNameLabel.setBounds(row3);
+
+    // ===== INPUT/OUTPUT GAIN CONTROLS (panel derecho) =====
+    auto utilityBounds = juce::Rectangle<int>(getWidth() - 100, 110, 70, 460);
+
+    // Input Gain (arriba)
+    auto inputBounds = utilityBounds.removeFromTop(210);
+    inputBounds.removeFromTop(25); // espacio para label
+    inputGainSlider.setBounds(inputBounds.reduced(10, 0));
+
+    utilityBounds.removeFromTop(20); // espacio entre sliders
+
+    // Output Gain (abajo)
+    auto outputBounds = utilityBounds.removeFromTop(210);
+    outputBounds.removeFromTop(25); // espacio para label
+    outputGainSlider.setBounds(outputBounds.reduced(10, 0));
 }

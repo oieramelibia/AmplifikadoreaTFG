@@ -105,6 +105,20 @@ juce::AudioProcessorValueTreeState::ParameterLayout AudioPluginAudioProcessor::c
         "Use External IR",
         false));
 
+    // Input Gain: -24dB a +24dB, jatorrizko balioa 0dB
+    layout.add(std::make_unique<juce::AudioParameterFloat>(
+        "inputGain",
+        "Input Gain",
+        juce::NormalisableRange<float>(-24.0f, 24.0f, 0.1f),
+        0.0f));
+
+    // Output Gain: -24dB a +24dB, jatorrizko balioa 0dB
+    layout.add(std::make_unique<juce::AudioParameterFloat>(
+        "outputGain",
+        "Output Gain",
+        juce::NormalisableRange<float>(-24.0f, 24.0f, 0.1f),
+        0.0f));
+
     return layout;
 }
 
@@ -195,7 +209,7 @@ void AudioPluginAudioProcessor::prepareToPlay(double sampleRate, int samplesPerB
     rightChannelFilters.prepare(monoSpec);
     updateFilters();
 
-	// Konboluzioa prestatu
+    // Konboluzioa prestatu
     convolution.prepare(spec);
 
     // Preparar filtros de cabinet
@@ -268,16 +282,16 @@ void AudioPluginAudioProcessor::updateFilters()
     float bassKnob = apvts.getRawParameterValue("bass")->load();
     float bassGain = (bassKnob - 5.0f) * 2.4f;
     float midKnob = apvts.getRawParameterValue("mid")->load();
-	float midGain = (midKnob - 5.0f) * 2.4f;
+    float midGain = (midKnob - 5.0f) * 2.4f;
     float trebleKnob = apvts.getRawParameterValue("treble")->load();
-	float trebleGain = (trebleKnob - 5.0f) * 2.4f;
+    float trebleGain = (trebleKnob - 5.0f) * 2.4f;
 
     // ===== TONESTACK ESTILO MARSHALL =====
 
     // 1. High-pass sub-baxuak kentzeko (transformadorea)
     auto highPassCoefs = FilterCoefs::makeHighPass(sampleRate, 75.0f, 0.707f);
 
-	// 2. Low-pass leuna balbulen mugaketen ondorioz
+    // 2. Low-pass leuna balbulen mugaketen ondorioz
     auto lowPassCoefs = FilterCoefs::makeLowPass(sampleRate, 8000.0f, 0.5f);
 
     // 3. BASS: Low shelf + interacción con mids
@@ -299,11 +313,11 @@ void AudioPluginAudioProcessor::updateFilters()
 
     if (midGain >= 0.0f)
     {
-        adjustedMidGain = midGain * 0.8f; 
+        adjustedMidGain = midGain * 0.8f;
     }
     else
     {
-        adjustedMidGain = midGain * 1.3f;  
+        adjustedMidGain = midGain * 1.3f;
     }
 
     auto midCoefs = FilterCoefs::makePeakFilter(
@@ -315,7 +329,7 @@ void AudioPluginAudioProcessor::updateFilters()
 
     // 5. TREBLE: High shelf + presence bump
     // Marshall 3-4kHz inguruan presence bump-a dauka
-    const float trebleFreq = 3500.0f; 
+    const float trebleFreq = 3500.0f;
     const float trebleQ = 0.7f;
 
     auto trebleCoefs = FilterCoefs::makeHighShelf(
@@ -343,14 +357,14 @@ void AudioPluginAudioProcessor::updateFilters()
     *leftChannelFilters.get<LowShelf>().coefficients = *bassCoefs;
     *leftChannelFilters.get<Peak>().coefficients = *midCoefs;
     *leftChannelFilters.get<HighShelf>().coefficients = *trebleCoefs;
-	*leftCabinetFilters.get<HighShelf>().coefficients = *presenceCoefs;
+    *leftCabinetFilters.get<HighShelf>().coefficients = *presenceCoefs;
     *leftChannelFilters.get<LowPass>().coefficients = *lowPassCoefs;
 
     *rightChannelFilters.get<HighPass>().coefficients = *highPassCoefs;
     *rightChannelFilters.get<LowShelf>().coefficients = *bassCoefs;
     *rightChannelFilters.get<Peak>().coefficients = *midCoefs;
     *rightChannelFilters.get<HighShelf>().coefficients = *trebleCoefs;
-	*rightCabinetFilters.get<HighShelf>().coefficients = *presenceCoefs;
+    *rightCabinetFilters.get<HighShelf>().coefficients = *presenceCoefs;
     *rightChannelFilters.get<LowPass>().coefficients = *lowPassCoefs;
 }
 
@@ -580,7 +594,7 @@ void AudioPluginAudioProcessor::loadExternalIR(const juce::File& file)
         static_cast<int>(reader->lengthInSamples)
     );
 
-	// Fitxategia irakurri
+    // Fitxategia irakurri
     reader->read(&tempBuffer, 0,
         static_cast<int>(reader->lengthInSamples),
         0, true, true);
@@ -595,7 +609,7 @@ void AudioPluginAudioProcessor::loadExternalIR(const juce::File& file)
         ? juce::dsp::Convolution::Stereo::no
         : juce::dsp::Convolution::Stereo::yes;
 
-	// Konoboluzioa kargatu
+    // Konoboluzioa kargatu
     try
     {
         convolution.loadImpulseResponse(
@@ -609,7 +623,7 @@ void AudioPluginAudioProcessor::loadExternalIR(const juce::File& file)
         irLoaded = true;
         currentIRName = file.getFileNameWithoutExtension();
 
-		// useExternalIR parametroa aktibatu
+        // useExternalIR parametroa aktibatu
         auto param = apvts.getParameter("useExternalIR");
         if (param != nullptr)
         {
@@ -657,7 +671,7 @@ void AudioPluginAudioProcessor::applyCabinetSimulation(juce::AudioBuffer<float>&
 
     if (useExternal && irLoaded)
     {
-		// Konboluzia erabili kanpoko IRarekin
+        // Konboluzia erabili kanpoko IRarekin
         juce::dsp::AudioBlock<float> block(buffer);
         juce::dsp::ProcessContextReplacing<float> context(block);
 
@@ -748,6 +762,11 @@ void AudioPluginAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     for (auto i = totalNumInputChannels; i < totalNumOutputChannels; ++i)
         buffer.clear(i, 0, buffer.getNumSamples());
 
+    // ===== 0. INPUT GAIN  =====
+    float inputGainDB = apvts.getRawParameterValue("inputGain")->load();
+    float inputGainLinear = juce::Decibels::decibelsToGain(inputGainDB);
+    buffer.applyGain(inputGainLinear);
+
     // Hautatutako kanalaren balioa eskuratzen dugu
     int channelIndex = static_cast<int>(apvts.getRawParameterValue("channel")->load());
     bool isDistortion = (channelIndex == 1);
@@ -818,6 +837,11 @@ void AudioPluginAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
 
     // ===== 4. MASTER VOLUME =====
     buffer.applyGain(masterGain);
+
+    // ===== 5. OUTPUT GAIN  =====
+    float outputGainDB = apvts.getRawParameterValue("outputGain")->load();
+    float outputGainLinear = juce::Decibels::decibelsToGain(outputGainDB);
+    buffer.applyGain(outputGainLinear);
 }
 
 //==============================================================================

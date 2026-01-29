@@ -45,15 +45,21 @@ private:
     juce::Label cabinetTypeLabel;
 
     juce::TextButton loadIRButton;
-    juce::TextButton clearIRButton;  
+    juce::TextButton clearIRButton;
     juce::Label irNameLabel;
-    juce::Label irStatusLabel;       
+    juce::Label irStatusLabel;
 
     juce::ToggleButton useExternalIRToggle;
     juce::Label useExternalIRLabel;
 
     juce::ToggleButton cabinetBypassToggle;
     juce::Label cabinetBypassLabel;
+
+    // Input/Output Gain Controls
+    juce::Slider inputGainSlider;
+    juce::Label inputGainLabel;
+    juce::Slider outputGainSlider;
+    juce::Label outputGainLabel;
 
     std::unique_ptr<juce::FileChooser> fileChooser;
 
@@ -69,6 +75,10 @@ private:
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> cabinetTypeAttachment;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> useExternalIRAttachment;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> cabinetBypassAttachment;
+
+    // Input/Output Gain attachments
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> inputGainAttachment;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> outputGainAttachment;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(AudioPluginAudioProcessorEditor)
 };
