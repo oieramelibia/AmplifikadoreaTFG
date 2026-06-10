@@ -237,7 +237,7 @@ float AudioPluginAudioProcessor::valveDistortion(float x, float driveKnob)
     x *= drive;
 
     // Balbularen asimetria(bias shift)
-    float asymmetry = 0.1f;
+    float asymmetry = 0.1f * (driveKnob / 10.0f);
     x += asymmetry;
 
     // Balbulako Waveshaping de válvula
