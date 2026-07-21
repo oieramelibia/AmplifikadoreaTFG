@@ -289,7 +289,7 @@ void AudioPluginAudioProcessor::updateFilters()
     // ===== TONESTACK ESTILO MARSHALL =====
 
     // 1. High-pass sub-baxuak kentzeko (transformadorea)
-    auto highPassCoefs = FilterCoefs::makeHighPass(sampleRate, 75.0f, 0.707f);
+    auto highPassCoefs = FilterCoefs::makeHighPass(sampleRate, 40.0f, 0.707f);
 
     // 2. Low-pass leuna balbulen mugaketen ondorioz
     auto lowPassCoefs = FilterCoefs::makeLowPass(sampleRate, 8000.0f, 0.5f);
@@ -357,14 +357,14 @@ void AudioPluginAudioProcessor::updateFilters()
     *leftChannelFilters.get<LowShelf>().coefficients = *bassCoefs;
     *leftChannelFilters.get<Peak>().coefficients = *midCoefs;
     *leftChannelFilters.get<HighShelf>().coefficients = *trebleCoefs;
-    *leftCabinetFilters.get<HighShelf>().coefficients = *presenceCoefs;
+    *leftChannelFilters.get<Presence>().coefficients = *presenceCoefs;
     *leftChannelFilters.get<LowPass>().coefficients = *lowPassCoefs;
 
     *rightChannelFilters.get<HighPass>().coefficients = *highPassCoefs;
     *rightChannelFilters.get<LowShelf>().coefficients = *bassCoefs;
     *rightChannelFilters.get<Peak>().coefficients = *midCoefs;
     *rightChannelFilters.get<HighShelf>().coefficients = *trebleCoefs;
-    *rightCabinetFilters.get<HighShelf>().coefficients = *presenceCoefs;
+    *rightChannelFilters.get<Presence>().coefficients = *presenceCoefs;
     *rightChannelFilters.get<LowPass>().coefficients = *lowPassCoefs;
 }
 
