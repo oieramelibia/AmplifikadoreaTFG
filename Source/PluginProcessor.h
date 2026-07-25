@@ -56,7 +56,7 @@ public:
 
 private:
     //==============================================================================
-    // Listener para cambios en parámetros
+    // Listener para cambios en parï¿½metros
     void parameterChanged(const juce::String& parameterID, float newValue) override;
 
     // AudioProcessorValueTreeState parametroak kudeatzeko
@@ -74,19 +74,20 @@ private:
     juce::dsp::Oversampling<float> preampOversampler{ 2, 3, juce::dsp::Oversampling<float>::filterHalfBandPolyphaseIIR };
     juce::dsp::Oversampling<float> powerAmpOversampler{ 2, 3, juce::dsp::Oversampling<float>::filterHalfBandPolyphaseIIR };
 
-    juce::dsp::ProcessorChain<Filter, Filter, Filter, Filter, Filter, Filter> leftChannelFilters;
-    juce::dsp::ProcessorChain<Filter, Filter, Filter, Filter, Filter, Filter> rightChannelFilters;
+    juce::dsp::ProcessorChain<Filter, Filter, Filter> leftChannelFilters;
+    juce::dsp::ProcessorChain<Filter, Filter, Filter> rightChannelFilters;
 
     // Filtroetara atzitzeko indizeak
     enum FilterIndex
     {
         LowPass = 0,
-        LowShelf,
-        Peak,
-        HighShelf,
-        Presence,
+        ToneStack, //3 ordena, LowShelf+Peak+HighShelf ordezkatu
         HighPass
     };
+
+    // Presence: kanaletik kanpo, potentzia-etapan aplikatzeko
+    Filter leftPresenceFilter;
+    Filter rightPresenceFilter; 
 
     // Kanpoko IR-a kargatzeko konboluzioa
     juce::dsp::Convolution convolution;

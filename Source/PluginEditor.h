@@ -34,12 +34,14 @@ private:
     juce::Slider bassSlider;
     juce::Slider midSlider;
     juce::Slider trebleSlider;
+    juce::Slider presenceSlider;
 
     // EQ sliderrentzako etiketak
     juce::Label masterLabel;
     juce::Label bassLabel;
     juce::Label midLabel;
     juce::Label trebleLabel;
+    juce::Label presenceLabel;
 
     juce::ComboBox cabinetTypeCombo;
     juce::Label cabinetTypeLabel;
@@ -70,6 +72,7 @@ private:
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> bassAttachment;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> midAttachment;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> trebleAttachment;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> presenceAttachment;
 
     // IR attachments
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> cabinetTypeAttachment;

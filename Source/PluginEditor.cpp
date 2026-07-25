@@ -64,7 +64,7 @@ AudioPluginAudioProcessorEditor::AudioPluginAudioProcessorEditor(AudioPluginAudi
     midLabel.attachToComponent(&midSlider, false);
     addAndMakeVisible(midLabel);
 
-    // Akutuen slideraren konfigurazioa (Treble)
+    // Alutuen slideraren konfigurazioa (Treble)
     trebleSlider.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
     trebleSlider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 80, 20);
     trebleSlider.setRange(0.0, 10.0, 0.1);
@@ -75,6 +75,18 @@ AudioPluginAudioProcessorEditor::AudioPluginAudioProcessorEditor(AudioPluginAudi
     trebleLabel.setJustificationType(juce::Justification::centred);
     trebleLabel.attachToComponent(&trebleSlider, false);
     addAndMakeVisible(trebleLabel);
+
+    // Akutuen slideraren konfigurazioa (Treble)
+    presenceSlider.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
+    presenceSlider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 80, 20);
+    presenceSlider.setRange(0.0, 10.0, 0.1);
+    presenceSlider.setValue(5.0);
+    addAndMakeVisible(presenceSlider);
+
+    presenceLabel.setText("PRESENCE", juce::dontSendNotification);
+    presenceLabel.setJustificationType(juce::Justification::centred);
+    presenceLabel.attachToComponent(&presenceSlider, false);
+    addAndMakeVisible(presenceLabel);
 
     // ===== CABINET CONTROLS =====
 
@@ -190,6 +202,8 @@ AudioPluginAudioProcessorEditor::AudioPluginAudioProcessorEditor(AudioPluginAudi
         processorRef.getAPVTS(), "mid", midSlider));
     trebleAttachment.reset(new juce::AudioProcessorValueTreeState::SliderAttachment(
         processorRef.getAPVTS(), "treble", trebleSlider));
+	presenceAttachment.reset(new juce::AudioProcessorValueTreeState::SliderAttachment(
+		processorRef.getAPVTS(), "presence", presenceSlider));
     cabinetTypeAttachment.reset(new juce::AudioProcessorValueTreeState::ComboBoxAttachment(
         processorRef.getAPVTS(), "cabinetType", cabinetTypeCombo));
     useExternalIRAttachment.reset(new juce::AudioProcessorValueTreeState::ButtonAttachment(
@@ -335,7 +349,7 @@ void AudioPluginAudioProcessorEditor::resized()
     ampBounds.removeFromRight(120); // Dejar espacio para panel de utilidad
     ampBounds.reduce(40, 20);
 
-    auto sliderWidth = ampBounds.getWidth() / 5;
+    auto sliderWidth = ampBounds.getWidth() / 6;
 
     // Drive
     auto driveBounds = ampBounds.removeFromLeft(sliderWidth).reduced(10);
@@ -361,6 +375,11 @@ void AudioPluginAudioProcessorEditor::resized()
     auto trebleBounds = ampBounds.removeFromLeft(sliderWidth).reduced(10);
     trebleBounds.removeFromTop(25);
     trebleSlider.setBounds(trebleBounds);
+
+	// Presence
+	auto presenceBounds = ampBounds.removeFromLeft(sliderWidth).reduced(10);
+	presenceBounds.removeFromTop(25);
+	presenceSlider.setBounds(presenceBounds);
 
     // ===== CABINET CONTROLS =====
     auto cabinetBounds = juce::Rectangle<int>(40, 465, getWidth() - 160, 110);

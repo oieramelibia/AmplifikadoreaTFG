@@ -23,6 +23,93 @@ AudioPluginAudioProcessor::~AudioPluginAudioProcessor()
     apvts.removeParameterListener("useExternalIR", this);
 }
 
+// PluginProcessor.cpp — arriba del todo, antes de la implementación de la clase
+
+namespace
+{
+    namespace ToneStackConstants
+    {
+        constexpr double C1 = 0.25e-9;
+        constexpr double C2 = 20e-9;
+        constexpr double C3 = 20e-9;
+        constexpr double R1 = 250e3;
+        constexpr double R2 = 1e6;
+        constexpr double R3 = 25e3;
+        constexpr double R4 = 56e3;
+    }
+
+    struct ContinuousCoeffs { double b1, b2, b3, a0, a1, a2, a3; };
+    struct DiscreteCoeffs { double B0, B1, B2, B3, A0, A1, A2, A3; };
+
+    // t = treble [0,1], m = mid [0,1], l = bass [0,1]
+    ContinuousCoeffs computeContinuousCoeffs(double t, double m, double l)
+    {
+        using namespace ToneStackConstants;
+        ContinuousCoeffs c;
+
+        c.b1 = t * C1 * R1 + m * C3 * R3 + l * (C1 * R2 + C2 * R2) + (C1 * R3 + C2 * R3);
+
+        c.b2 = t * (C1 * C2 * R1 * R4 + C1 * C3 * R1 * R4)
+            - m * m * (C1 * C3 * R3 * R3 + C2 * C3 * R3 * R3)
+            + m * (C1 * C3 * R1 * R3 + C1 * C3 * R3 * R3 + C2 * C3 * R3 * R3)
+            + l * (C1 * C2 * R1 * R2 + C1 * C2 * R2 * R4 + C1 * C3 * R2 * R4)
+            + l * m * (C1 * C3 * R2 * R3 + C2 * C3 * R2 * R3)
+            + (C1 * C2 * R1 * R3 + C1 * C2 * R3 * R4 + C1 * C3 * R3 * R4);
+
+        c.b3 = l * m * (C1 * C2 * C3 * R1 * R2 * R3 + C1 * C2 * C3 * R2 * R3 * R4)
+            - m * m * (C1 * C2 * C3 * R1 * R3 * R3 + C1 * C2 * C3 * R3 * R3 * R4)
+            + m * (C1 * C2 * C3 * R1 * R3 * R3 + C1 * C2 * C3 * R3 * R3 * R4)
+            + t * C1 * C2 * C3 * R1 * R3 * R4
+            - t * m * C1 * C2 * C3 * R1 * R3 * R4
+            + t * l * C1 * C2 * C3 * R1 * R2 * R4;
+
+        c.a0 = 1.0;
+
+        c.a1 = (C1 * R1 + C1 * R3 + C2 * R3 + C2 * R4 + C3 * R4)
+            + m * C3 * R3
+            + l * (C1 * R2 + C2 * R2);
+
+        c.a2 = m * (C1 * C3 * R1 * R3 - C2 * C3 * R3 * R4 + C1 * C3 * R3 * R3 + C2 * C3 * R3 * R3)
+            + l * m * (C1 * C3 * R2 * R3 + C2 * C3 * R2 * R3)
+            - m * m * (C1 * C3 * R3 * R3 + C2 * C3 * R3 * R3)
+            + l * (C1 * C2 * R2 * R4 + C1 * C2 * R1 * R2 + C1 * C3 * R2 * R4 + C2 * C3 * R2 * R4)
+            + (C1 * C2 * R1 * R4 + C1 * C3 * R1 * R4 + C1 * C2 * R3 * R4 + C1 * C2 * R1 * R3 + C1 * C3 * R3 * R4 + C2 * C3 * R3 * R4);
+
+        c.a3 = l * m * (C1 * C2 * C3 * R1 * R2 * R3 + C1 * C2 * C3 * R2 * R3 * R4)
+            - m * m * (C1 * C2 * C3 * R1 * R3 * R3 + C1 * C2 * C3 * R3 * R3 * R4)
+            + m * (C1 * C2 * C3 * R3 * R3 * R4 + C1 * C2 * C3 * R1 * R3 * R3 - C1 * C2 * C3 * R1 * R3 * R4)
+            + l * C1 * C2 * C3 * R1 * R2 * R4
+            + C1 * C2 * C3 * R1 * R3 * R4;
+
+        return c;
+    }
+    DiscreteCoeffs bilinearTransform(const ContinuousCoeffs& ct, double sampleRate)
+    {
+        const double c = 2.0 * sampleRate;   // c = 2/T
+        const double c2 = c * c;
+        const double c3 = c2 * c;
+
+        DiscreteCoeffs d;
+        d.B0 = -ct.b1 * c - ct.b2 * c2 - ct.b3 * c3;
+        d.B1 = -ct.b1 * c + ct.b2 * c2 + 3.0 * ct.b3 * c3;
+        d.B2 = ct.b1 * c + ct.b2 * c2 - 3.0 * ct.b3 * c3;
+        d.B3 = ct.b1 * c - ct.b2 * c2 + ct.b3 * c3;
+
+        d.A0 = -ct.a0 - ct.a1 * c - ct.a2 * c2 - ct.a3 * c3;
+        d.A1 = -3.0 * ct.a0 - ct.a1 * c + ct.a2 * c2 + 3.0 * ct.a3 * c3;
+        d.A2 = -3.0 * ct.a0 + ct.a1 * c + ct.a2 * c2 - 3.0 * ct.a3 * c3;
+        d.A3 = -ct.a0 + ct.a1 * c - ct.a2 * c2 + ct.a3 * c3;
+
+        return d;
+    }
+    // Benetako Bassman zirkuituko Bass potentziometroak taper logaritmikoa du (Yeh & Smith, 2006), fabrikatzaileek "audio taper" izenez ezagutzen dutena.
+    // Formula hau ez dator zuzenean paperetik; ingeniaritzako hurbilketa estandarra da pot logaritmikoen portaera softwarean imitatzeko.
+    double logTaper(double x)
+    {
+        return (std::pow(10.0, x) - 1.0) / 9.0;
+    }
+}
+
 // Listener
 void AudioPluginAudioProcessor::parameterChanged(const juce::String& parameterID, float newValue)
 {
@@ -85,6 +172,13 @@ juce::AudioProcessorValueTreeState::ParameterLayout AudioPluginAudioProcessor::c
         "Treble",
         juce::NormalisableRange<float>(0.0f, 10.0f, 0.1f),
         5.0f));
+
+	// Presence: 0 a 10, jatorrizko balioa 5
+	layout.add(std::make_unique<juce::AudioParameterFloat>(
+		"presence",
+		"Presence",
+		juce::NormalisableRange<float>(0.0f, 10.0f, 0.1f),
+		5.0f));
 
     // Cabinet mota
     layout.add(std::make_unique<juce::AudioParameterChoice>(
@@ -197,17 +291,29 @@ void AudioPluginAudioProcessor::prepareToPlay(double sampleRate, int samplesPerB
     // Oversaplerrak hasieratu
     preampOversampler.initProcessing(static_cast<size_t>(samplesPerBlock));
     preampOversampler.reset();
-
     powerAmpOversampler.initProcessing(static_cast<size_t>(samplesPerBlock));
     powerAmpOversampler.reset();
 
     // EQ filtroak prestatu
     juce::dsp::ProcessSpec monoSpec = spec;
     monoSpec.numChannels = 1;
-
     leftChannelFilters.prepare(monoSpec);
     rightChannelFilters.prepare(monoSpec);
-    updateFilters();
+
+    // Presence filtroak prestatu — sobremuestreo-abiaduran (8x) exekutatzen dira,
+    // powerAmpOversampler-en barruan (ikus processBlock())
+    juce::dsp::ProcessSpec presenceSpec;
+    presenceSpec.sampleRate = sampleRate * 8.0;
+    presenceSpec.maximumBlockSize = static_cast<juce::uint32>(samplesPerBlock * 8);
+    presenceSpec.numChannels = 1;
+    leftPresenceFilter.prepare(presenceSpec);
+    rightPresenceFilter.prepare(presenceSpec);
+
+    updateFilters();      // Tonestack + Presence koefiziente guztiak lehen aldiz ezartzen ditu
+    leftChannelFilters.reset();
+    rightChannelFilters.reset();
+    leftPresenceFilter.reset();
+    rightPresenceFilter.reset();
 
     // Konboluzioa prestatu
     convolution.prepare(spec);
@@ -218,7 +324,6 @@ void AudioPluginAudioProcessor::prepareToPlay(double sampleRate, int samplesPerB
 
     // IR berriz kargatu behar bada (sample rate aldaketa)
     reloadIRIfNeeded();
-
     if (!irLoaded)
     {
         createSyntheticIR();
@@ -279,14 +384,11 @@ void AudioPluginAudioProcessor::updateFilters()
 {
     auto sampleRate = getSampleRate();
 
-    float bassKnob = apvts.getRawParameterValue("bass")->load();
-    float bassGain = (bassKnob - 5.0f) * 2.4f;
-    float midKnob = apvts.getRawParameterValue("mid")->load();
-    float midGain = (midKnob - 5.0f) * 2.4f;
+    float bassKnob   = apvts.getRawParameterValue("bass")->load();
+    float midKnob    = apvts.getRawParameterValue("mid")->load();
     float trebleKnob = apvts.getRawParameterValue("treble")->load();
-    float trebleGain = (trebleKnob - 5.0f) * 2.4f;
 
-    // ===== TONESTACK ESTILO MARSHALL =====
+    // ===== TONESTACK AKOPLATUA (Fender/Marshall topologia, Yeh & Smith 2006) =====
 
     // 1. High-pass sub-baxuak kentzeko (transformadorea)
     auto highPassCoefs = FilterCoefs::makeHighPass(sampleRate, 40.0f, 0.707f);
@@ -294,78 +396,52 @@ void AudioPluginAudioProcessor::updateFilters()
     // 2. Low-pass leuna balbulen mugaketen ondorioz
     auto lowPassCoefs = FilterCoefs::makeLowPass(sampleRate, 8000.0f, 0.5f);
 
-    // 3. BASS: Low shelf + interacción con mids
-    const float bassFreq = 80.0f;  // 80Hz
-    const float bassQ = 0.5f;      // Q 
+    // 3. BASS/MID/TREBLE akoplatuak: iragazki bakar bat, 3. ordenakoa
+    double t = trebleKnob / 10.0;
+    double m = midKnob / 10.0;
+    double l = logTaper(bassKnob / 10.0);
 
-    auto bassCoefs = FilterCoefs::makeLowShelf(
-        sampleRate,
-        bassFreq,
-        bassQ,
-        juce::Decibels::decibelsToGain(bassGain)
-    );
+    auto continuous = computeContinuousCoeffs(t, m, l);
+    auto discrete = bilinearTransform(continuous, sampleRate);
 
-    // 4. MID: Notch filter karakteristikoa (mid scoop)
-    const float midControlFreq = 800.0f;
-    const float midQ = 1.2f;  // Q 
+    double norm = 1.0 / discrete.A0;
+    float fb0 = static_cast<float>(discrete.B0 * norm);
+    float fb1 = static_cast<float>(discrete.B1 * norm);
+    float fb2 = static_cast<float>(discrete.B2 * norm);
+    float fb3 = static_cast<float>(discrete.B3 * norm);
+    float fa1 = static_cast<float>(discrete.A1 * norm);
+    float fa2 = static_cast<float>(discrete.A2 * norm);
+    float fa3 = static_cast<float>(discrete.A3 * norm);
 
-    float adjustedMidGain = midGain;
+    FilterCoefs::Ptr toneStackCoefs = new FilterCoefs(fb0, fb1, fb2, fb3, 1.0f, fa1, fa2, fa3);
 
-    if (midGain >= 0.0f)
-    {
-        adjustedMidGain = midGain * 0.8f;
-    }
-    else
-    {
-        adjustedMidGain = midGain * 1.3f;
-    }
+    *leftChannelFilters.get<HighPass>().coefficients   = *highPassCoefs;
+    *leftChannelFilters.get<ToneStack>().coefficients  = *toneStackCoefs;
+    *leftChannelFilters.get<LowPass>().coefficients    = *lowPassCoefs;
 
-    auto midCoefs = FilterCoefs::makePeakFilter(
-        sampleRate,
-        midControlFreq,
-        midQ,
-        juce::Decibels::decibelsToGain(adjustedMidGain)
-    );
+    *rightChannelFilters.get<HighPass>().coefficients  = *highPassCoefs;
+    *rightChannelFilters.get<ToneStack>().coefficients = *toneStackCoefs;
+    *rightChannelFilters.get<LowPass>().coefficients   = *lowPassCoefs;
 
-    // 5. TREBLE: High shelf + presence bump
-    // Marshall 3-4kHz inguruan presence bump-a dauka
-    const float trebleFreq = 3500.0f;
-    const float trebleQ = 0.7f;
+    // ===== PRESENCE: potentzia-etapan aplikatzeko, ez tonu-pilan =====
+    // Kontrol independentea da orain (parametro propioa), ez trebleGain-en araberakoa.
+    // oversampling (8x) diseinatzen da, hor exekutatuko baita (ikus processBlock()).
+    float presenceKnob = apvts.getRawParameterValue("presence")->load();
+    float presenceGain = presenceKnob * 0.8f;   // 0 a +8 dB, boost-only
 
-    auto trebleCoefs = FilterCoefs::makeHighShelf(
-        sampleRate,
-        trebleFreq,
-        trebleQ,
-        juce::Decibels::decibelsToGain(trebleGain)
-    );
-
-    // Beste high shelf bat power amp-aren feedback loop-ean
-    const float presenceFreq = 4500.0f;
+    const float presenceFreq = 3200.0f;
     const float presenceQ = 1.0f;
-
-    // Presence simulatua: Treble igotzerakoan
-    float presenceAmount = std::max(0.0f, trebleGain * 0.3f);
+    const double oversampledRate = sampleRate * 8.0;
 
     auto presenceCoefs = FilterCoefs::makeHighShelf(
-        sampleRate,
+        oversampledRate,
         presenceFreq,
         presenceQ,
-        juce::Decibels::decibelsToGain(presenceAmount)
+        juce::Decibels::decibelsToGain(presenceGain)
     );
 
-    *leftChannelFilters.get<HighPass>().coefficients = *highPassCoefs;
-    *leftChannelFilters.get<LowShelf>().coefficients = *bassCoefs;
-    *leftChannelFilters.get<Peak>().coefficients = *midCoefs;
-    *leftChannelFilters.get<HighShelf>().coefficients = *trebleCoefs;
-    *leftChannelFilters.get<Presence>().coefficients = *presenceCoefs;
-    *leftChannelFilters.get<LowPass>().coefficients = *lowPassCoefs;
-
-    *rightChannelFilters.get<HighPass>().coefficients = *highPassCoefs;
-    *rightChannelFilters.get<LowShelf>().coefficients = *bassCoefs;
-    *rightChannelFilters.get<Peak>().coefficients = *midCoefs;
-    *rightChannelFilters.get<HighShelf>().coefficients = *trebleCoefs;
-    *rightChannelFilters.get<Presence>().coefficients = *presenceCoefs;
-    *rightChannelFilters.get<LowPass>().coefficients = *lowPassCoefs;
+    *leftPresenceFilter.coefficients  = *presenceCoefs;
+    *rightPresenceFilter.coefficients = *presenceCoefs;
 }
 
 //Sag kalkulatzeko metodoa
@@ -819,18 +895,29 @@ void AudioPluginAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     }
 
     // ===== 3. POWER AMP STAGE  =====
+    juce::dsp::AudioBlock<float> powerBlock(buffer);
+    auto oversampledPowerBlock = powerAmpOversampler.processSamplesUp(powerBlock);
+
+    // Presence: beti aktibo, master mailatik independentea
+    for (size_t channel = 0; channel < oversampledPowerBlock.getNumChannels(); ++channel)
+    {
+        auto channelBlock = oversampledPowerBlock.getSingleChannelBlock(channel);
+        juce::dsp::ProcessContextReplacing<float> presenceContext(channelBlock);
+
+        if (channel == 0)
+            leftPresenceFilter.process(presenceContext);
+        else
+            rightPresenceFilter.process(presenceContext);
+    }
+
+    // Saturazioa, aldiz, atalasepean bakarrik aktibatzen da, aurretik bezala
     if (masterGain > 0.3f)
     {
         float powerAmpAmount = std::pow((masterGain - 0.3f) / 0.7f, 1.2f);
-
-        // Crear block y hacer oversampling para el power amp
-        juce::dsp::AudioBlock<float> powerBlock(buffer);
-        auto oversampledPowerBlock = powerAmpOversampler.processSamplesUp(powerBlock);
-
         applyPowerAmpSaturation(oversampledPowerBlock, powerAmpAmount);
-
-        powerAmpOversampler.processSamplesDown(powerBlock);
     }
+
+    powerAmpOversampler.processSamplesDown(powerBlock);
 
     // ===== 4. CABINET SIMULATION ===== 
     applyCabinetSimulation(buffer);
