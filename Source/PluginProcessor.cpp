@@ -294,6 +294,17 @@ void AudioPluginAudioProcessor::prepareToPlay(double sampleRate, int samplesPerB
     powerAmpOversampler.initProcessing(static_cast<size_t>(samplesPerBlock));
     powerAmpOversampler.reset();
 
+    // SAG-en jarraipen-inguratzailearen koefizienteak (ikus applyPowerAmpSaturation())
+    double oversampledRate = sampleRate * 8.0;
+    constexpr float sagAttackTimeMs = 10.0f;
+    constexpr float sagReleaseTimeMs = 80.0f;
+
+    sagAttackCoeff = 1.0f - std::exp(-1.0f / (static_cast<float>(oversampledRate) * (sagAttackTimeMs / 1000.0f)));
+    sagReleaseCoeff = 1.0f - std::exp(-1.0f / (static_cast<float>(oversampledRate) * (sagReleaseTimeMs / 1000.0f)));
+
+    leftSagEnvelope = 0.0f;
+    rightSagEnvelope = 0.0f;
+
     // EQ filtroak prestatu
     juce::dsp::ProcessSpec monoSpec = spec;
     monoSpec.numChannels = 1;
@@ -303,7 +314,7 @@ void AudioPluginAudioProcessor::prepareToPlay(double sampleRate, int samplesPerB
     // Presence filtroak prestatu — sobremuestreo-abiaduran (8x) exekutatzen dira,
     // powerAmpOversampler-en barruan (ikus processBlock())
     juce::dsp::ProcessSpec presenceSpec;
-    presenceSpec.sampleRate = sampleRate * 8.0;
+    presenceSpec.sampleRate = oversampledRate;
     presenceSpec.maximumBlockSize = static_cast<juce::uint32>(samplesPerBlock * 8);
     presenceSpec.numChannels = 1;
     leftPresenceFilter.prepare(presenceSpec);
@@ -492,6 +503,7 @@ void AudioPluginAudioProcessor::applyPowerAmpSaturation(juce::dsp::AudioBlock<fl
     for (size_t channel = 0; channel < block.getNumChannels(); ++channel)
     {
         auto* channelData = block.getChannelPointer(channel);
+        float& sagEnvelope = (channel == 0) ? leftSagEnvelope : rightSagEnvelope;
 
         for (size_t sample = 0; sample < block.getNumSamples(); ++sample)
         {
@@ -501,26 +513,42 @@ void AudioPluginAudioProcessor::applyPowerAmpSaturation(juce::dsp::AudioBlock<fl
             x *= (1.0f + amount * 0.6f);
             x += amount * 0.06f;
 
+            // --- SAG-en jarraipen-inguratzailea (envelope follower) ---
+            // Botere-eskaria x^2 gisa neurtzen da (P ~ V^2/R), elikadura-tentsioaren
+            // jaitsieraren atzean dagoen kausa fisikoa (korronte-eskaria) hobeto islatzeko.
+            float instantPower = x * x;
+            float envCoeff = (instantPower > sagEnvelope) ? sagAttackCoeff : sagReleaseCoeff;
+            sagEnvelope += envCoeff * (instantPower - sagEnvelope);
+
+            // Inguratzaileak sagThreshold dinamikoki modulatzen du: energia berriena
+            // handia bada, atalasea jaitsi egiten da (elikadura-tentsioa "jaisten" delako),
+            // seinalea goiztiarrago saturatuz.
+            float dynamicSagThreshold = sagThreshold - (std::sqrt(sagEnvelope) * amount * 0.15f);
+            dynamicSagThreshold = juce::jmax(0.1f, dynamicSagThreshold);
+
             // 2. Crossover distortsioa
             if (amount > 0.3f)
                 x = crossoverDistortion(x, (amount - 0.3f) * 0.6f);
 
-            // 3. SAG konpresioa
-            x = tubeSag(x, sagThreshold);
+            // 3. SAG konpresioa — orain atalase dinamikoarekin
+            x = tubeSag(x, dynamicSagThreshold);
 
-            // 4. Grid current
+            // 4. Grid current — atalase estatikoari eusten zaio (fenomeno independentea da,
+            //    drive-mailari lotua, ez elikadura-tentsioaren jaitsierari)
             if (amount > 0.7f)
                 x = gridCurrent(x, gridThreshold);
 
-            // 5. Waveshaping EL34-style asikemtrikoa
-            if (x > sagThreshold) {
-                float excess = x - sagThreshold;
+            // 5. Waveshaping EL34-style asimetrikoa — atalase dinamikoa erabiltzen du hemen ere,
+            //    koherentzia fisikoa mantentzeko: tentsioa jaisten bada, saturazio-puntu
+            //    guztiek batera mugitu behar dute, ez soilik tubeSag()-ek
+            if (x > dynamicSagThreshold) {
+                float excess = x - dynamicSagThreshold;
                 float softness = 1.5f + amount * 0.8f;
-                x = sagThreshold + std::tanh(excess * softness) / std::tanh(softness) * 0.25f;
+                x = dynamicSagThreshold + std::tanh(excess * softness) / std::tanh(softness) * 0.25f;
             }
-            else if (x < -sagThreshold * 1.08f) {
-                float excess = -x - sagThreshold * 1.08f;
-                x = -(sagThreshold * 1.08f + excess / (1.0f + excess * (2.2f + amount * 0.6f)));
+            else if (x < -dynamicSagThreshold * 1.08f) {
+                float excess = -x - dynamicSagThreshold * 1.08f;
+                x = -(dynamicSagThreshold * 1.08f + excess / (1.0f + excess * (2.2f + amount * 0.6f)));
             }
 
             // 6. Armonikoak gehitu

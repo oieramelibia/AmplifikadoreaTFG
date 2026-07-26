@@ -67,6 +67,10 @@ private:
     using Filter = juce::dsp::IIR::Filter<float>;
     using FilterCoefs = juce::dsp::IIR::Coefficients<float>;
 
+    float leftSagEnvelope = 0.0f;
+    float rightSagEnvelope = 0.0f;
+    float sagAttackCoeff = 0.0f;
+    float sagReleaseCoeff = 0.0f;
     float tubeSag(float x, float threshold);
     float crossoverDistortion(float x, float amount);
     float gridCurrent(float x, float threshold);
