@@ -71,6 +71,10 @@ private:
     float rightSagEnvelope = 0.0f;
     float sagAttackCoeff = 0.0f;
     float sagReleaseCoeff = 0.0f;
+    float leftGridBiasEnvelope = 0.0f;
+    float rightGridBiasEnvelope = 0.0f;
+    float gridBiasAttackCoeff = 0.0f;
+    float gridBiasReleaseCoeff = 0.0f;
     float tubeSag(float x, float threshold);
     float crossoverDistortion(float x, float amount);
     float gridCurrent(float x, float threshold);
@@ -88,6 +92,9 @@ private:
         ToneStack, //3 ordena, LowShelf+Peak+HighShelf ordezkatu
         HighPass
     };
+
+    Filter leftPreampToneFilter;
+    Filter rightPreampToneFilter;
 
     // Presence: kanaletik kanpo, potentzia-etapan aplikatzeko
     Filter leftPresenceFilter;
@@ -123,7 +130,7 @@ private:
     void applySyntheticCabinet(juce::AudioBuffer<float>& buffer);
     void updateFilters();
     void reloadIRIfNeeded();
-    float valveDistortion(float x, float drive);
+    float valveDistortion(float x, float drive, float gridBiasEnvelope);
     void applyDistortionOversampled(juce::dsp::AudioBlock<float>& block);
     void applyPowerAmpSaturation(juce::dsp::AudioBlock<float>& block, float amount);
 

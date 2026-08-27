@@ -1,6 +1,7 @@
 #pragma once
 
 #include "PluginProcessor.h"
+#include "RedSunAmpLookAndFeel.h"
 
 //==============================================================================
 class AudioPluginAudioProcessorEditor final : public juce::AudioProcessorEditor,
@@ -20,6 +21,10 @@ private:
     void updateIRControls();
 
     AudioPluginAudioProcessor& processorRef;
+
+    // Anplifikadorearen itxura: "Red Sun Amp" taldearen estetika (beltza + gorri-laranja)
+    RedSunAmpLookAndFeel redSunLookAndFeel;
+    juce::Image bandLogo;
 
     // Kanal hautatzailea
     juce::ComboBox channelSelector;

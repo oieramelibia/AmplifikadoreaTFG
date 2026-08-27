@@ -23,7 +23,6 @@ AudioPluginAudioProcessor::~AudioPluginAudioProcessor()
     apvts.removeParameterListener("useExternalIR", this);
 }
 
-// PluginProcessor.cpp — arriba del todo, antes de la implementación de la clase
 
 namespace
 {
@@ -298,12 +297,33 @@ void AudioPluginAudioProcessor::prepareToPlay(double sampleRate, int samplesPerB
     double oversampledRate = sampleRate * 8.0;
     constexpr float sagAttackTimeMs = 10.0f;
     constexpr float sagReleaseTimeMs = 80.0f;
+    constexpr float gridBiasAttackTimeMs = 3.0f;     // azkarra: sare-eroapena, inpedantzia baxua
+    constexpr float gridBiasReleaseTimeMs = 150.0f;  // motela: grid-leak erresistentzia handia
 
     sagAttackCoeff = 1.0f - std::exp(-1.0f / (static_cast<float>(oversampledRate) * (sagAttackTimeMs / 1000.0f)));
     sagReleaseCoeff = 1.0f - std::exp(-1.0f / (static_cast<float>(oversampledRate) * (sagReleaseTimeMs / 1000.0f)));
+    gridBiasAttackCoeff = 1.0f - std::exp(-1.0f / (static_cast<float>(oversampledRate) * (gridBiasAttackTimeMs / 1000.0f)));
+    gridBiasReleaseCoeff = 1.0f - std::exp(-1.0f / (static_cast<float>(oversampledRate) * (gridBiasReleaseTimeMs / 1000.0f)));
 
     leftSagEnvelope = 0.0f;
     rightSagEnvelope = 0.0f;
+    leftGridBiasEnvelope = 0.0f;
+    rightGridBiasEnvelope = 0.0f;
+
+    // Preamp-eko tonu-iragazkia: Miller efektua imitatzen du, drive handiko
+    // waveshaping-ak sortutako goi-maiztasun zorrotzak leuntzeko
+    juce::dsp::ProcessSpec preampToneSpec;
+    preampToneSpec.sampleRate = oversampledRate;
+    preampToneSpec.maximumBlockSize = static_cast<juce::uint32>(samplesPerBlock * 8);
+    preampToneSpec.numChannels = 1;
+    leftPreampToneFilter.prepare(preampToneSpec);
+    rightPreampToneFilter.prepare(preampToneSpec);
+
+    auto preampToneCoefs = FilterCoefs::makeLowPass(oversampledRate, 5500.0f, 0.707f);
+    *leftPreampToneFilter.coefficients = *preampToneCoefs;
+    *rightPreampToneFilter.coefficients = *preampToneCoefs;
+    leftPreampToneFilter.reset();
+    rightPreampToneFilter.reset();
 
     // EQ filtroak prestatu
     juce::dsp::ProcessSpec monoSpec = spec;
@@ -311,7 +331,7 @@ void AudioPluginAudioProcessor::prepareToPlay(double sampleRate, int samplesPerB
     leftChannelFilters.prepare(monoSpec);
     rightChannelFilters.prepare(monoSpec);
 
-    // Presence filtroak prestatu — sobremuestreo-abiaduran (8x) exekutatzen dira,
+    // Presence filtroak prestatu
     // powerAmpOversampler-en barruan (ikus processBlock())
     juce::dsp::ProcessSpec presenceSpec;
     presenceSpec.sampleRate = oversampledRate;
@@ -347,16 +367,18 @@ void AudioPluginAudioProcessor::releaseResources()
     // Erreprodukzioa gelditzerakoan, baliabideak askatzen ditugu beharrezkoa bada
 }
 
-float AudioPluginAudioProcessor::valveDistortion(float x, float driveKnob)
+float AudioPluginAudioProcessor::valveDistortion(float x, float driveKnob, float gridBiasEnvelope)
 {
     float drive = 1.0f + (driveKnob / 10.0f) * 19.0f;
     x *= drive;
 
     // Balbularen asimetria(bias shift)
-    float asymmetry = 0.1f * (driveKnob / 10.0f);
+    float staticAsymmetry = 0.1f * (driveKnob / 10.0f);
+    float dynamicAsymmetry = gridBiasEnvelope * 0.15f;
+    float asymmetry = staticAsymmetry + dynamicAsymmetry;
     x += asymmetry;
 
-    // Balbulako Waveshaping de válvula
+    // Balbularen Waveshaping
     if (x > 0.0f)
     {
         // Ziklo positiboa: compresio progresiboa
@@ -381,13 +403,34 @@ void AudioPluginAudioProcessor::applyDistortionOversampled(juce::dsp::AudioBlock
     for (size_t channel = 0; channel < block.getNumChannels(); ++channel)
     {
         auto* channelData = block.getChannelPointer(channel);
+        float& gridBiasEnvelope = (channel == 0) ? leftGridBiasEnvelope : rightGridBiasEnvelope;
 
         // Waveshaping aplikatu lagin bakoitzari
         for (size_t sample = 0; sample < block.getNumSamples(); ++sample)
         {
             float x = channelData[sample];
-            channelData[sample] = valveDistortion(x, drive);
+
+            // Zuzenketa (rectification) asimetrikoa: ziklo positiboak bakarrik kargatzen du
+            float rectified = juce::jmax(0.0f, x);
+            float coeff = (rectified > gridBiasEnvelope) ? gridBiasAttackCoeff : gridBiasReleaseCoeff;
+            gridBiasEnvelope += coeff * (rectified - gridBiasEnvelope);
+
+            channelData[sample] = valveDistortion(x, drive, gridBiasEnvelope);
         }
+    }
+
+    // Preamp-eko tonu-iragazkia: Miller efektua imitatzen du, waveshaping-ak
+    // sortutako goi-maiztasun zorrotzak leunduz, drive handiko presence-ekin
+    // batera nabarmenagoa den "fizz" hori arintzeko
+    for (size_t channel = 0; channel < block.getNumChannels(); ++channel)
+    {
+        auto channelBlock = block.getSingleChannelBlock(channel);
+        juce::dsp::ProcessContextReplacing<float> context(channelBlock);
+
+        if (channel == 0)
+            leftPreampToneFilter.process(context);
+        else
+            rightPreampToneFilter.process(context);
     }
 }
 
@@ -513,16 +556,10 @@ void AudioPluginAudioProcessor::applyPowerAmpSaturation(juce::dsp::AudioBlock<fl
             x *= (1.0f + amount * 0.6f);
             x += amount * 0.06f;
 
-            // --- SAG-en jarraipen-inguratzailea (envelope follower) ---
-            // Botere-eskaria x^2 gisa neurtzen da (P ~ V^2/R), elikadura-tentsioaren
-            // jaitsieraren atzean dagoen kausa fisikoa (korronte-eskaria) hobeto islatzeko.
             float instantPower = x * x;
             float envCoeff = (instantPower > sagEnvelope) ? sagAttackCoeff : sagReleaseCoeff;
             sagEnvelope += envCoeff * (instantPower - sagEnvelope);
 
-            // Inguratzaileak sagThreshold dinamikoki modulatzen du: energia berriena
-            // handia bada, atalasea jaitsi egiten da (elikadura-tentsioa "jaisten" delako),
-            // seinalea goiztiarrago saturatuz.
             float dynamicSagThreshold = sagThreshold - (std::sqrt(sagEnvelope) * amount * 0.15f);
             dynamicSagThreshold = juce::jmax(0.1f, dynamicSagThreshold);
 
@@ -530,17 +567,14 @@ void AudioPluginAudioProcessor::applyPowerAmpSaturation(juce::dsp::AudioBlock<fl
             if (amount > 0.3f)
                 x = crossoverDistortion(x, (amount - 0.3f) * 0.6f);
 
-            // 3. SAG konpresioa — orain atalase dinamikoarekin
+            // 3. SAG konpresioa
             x = tubeSag(x, dynamicSagThreshold);
 
-            // 4. Grid current — atalase estatikoari eusten zaio (fenomeno independentea da,
-            //    drive-mailari lotua, ez elikadura-tentsioaren jaitsierari)
+            // 4. Grid current
             if (amount > 0.7f)
                 x = gridCurrent(x, gridThreshold);
 
-            // 5. Waveshaping EL34-style asimetrikoa — atalase dinamikoa erabiltzen du hemen ere,
-            //    koherentzia fisikoa mantentzeko: tentsioa jaisten bada, saturazio-puntu
-            //    guztiek batera mugitu behar dute, ez soilik tubeSag()-ek
+            // 5. Waveshaping EL34-style asikemtrikoa
             if (x > dynamicSagThreshold) {
                 float excess = x - dynamicSagThreshold;
                 float softness = 1.5f + amount * 0.8f;
