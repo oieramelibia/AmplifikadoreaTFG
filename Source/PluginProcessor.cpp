@@ -297,18 +297,30 @@ void AudioPluginAudioProcessor::prepareToPlay(double sampleRate, int samplesPerB
     double oversampledRate = sampleRate * 8.0;
     constexpr float sagAttackTimeMs = 10.0f;
     constexpr float sagReleaseTimeMs = 80.0f;
+
     constexpr float gridBiasAttackTimeMs = 3.0f;     // azkarra: sare-eroapena, inpedantzia baxua
     constexpr float gridBiasReleaseTimeMs = 150.0f;  // motela: grid-leak erresistentzia handia
 
+    constexpr float powerGridBiasAttackTimeMs = 3.0f;
+    constexpr float powerGridBiasReleaseTimeMs = 20.0f;
+
     sagAttackCoeff = 1.0f - std::exp(-1.0f / (static_cast<float>(oversampledRate) * (sagAttackTimeMs / 1000.0f)));
     sagReleaseCoeff = 1.0f - std::exp(-1.0f / (static_cast<float>(oversampledRate) * (sagReleaseTimeMs / 1000.0f)));
-    gridBiasAttackCoeff = 1.0f - std::exp(-1.0f / (static_cast<float>(oversampledRate) * (gridBiasAttackTimeMs / 1000.0f)));
-    gridBiasReleaseCoeff = 1.0f - std::exp(-1.0f / (static_cast<float>(oversampledRate) * (gridBiasReleaseTimeMs / 1000.0f)));
+
+    preGridBiasAttackCoeff = 1.0f - std::exp(-1.0f / (static_cast<float>(oversampledRate) * (gridBiasAttackTimeMs / 1000.0f)));
+    preGridBiasReleaseCoeff = 1.0f - std::exp(-1.0f / (static_cast<float>(oversampledRate) * (gridBiasReleaseTimeMs / 1000.0f)));
+
+    powerGridBiasAttackCoeff = 1.0f - std::exp(-1.0f / (static_cast<float>(oversampledRate) * (powerGridBiasAttackTimeMs / 1000.0f)));
+    powerGridBiasReleaseCoeff = 1.0f - std::exp(-1.0f / (static_cast<float>(oversampledRate) * (powerGridBiasReleaseTimeMs / 1000.0f)));
 
     leftSagEnvelope = 0.0f;
     rightSagEnvelope = 0.0f;
-    leftGridBiasEnvelope = 0.0f;
-    rightGridBiasEnvelope = 0.0f;
+
+    leftPreGridBiasEnvelope = 0.0f;
+    rightPreGridBiasEnvelope = 0.0f;
+
+    leftPowerGridBiasEnvelope = 0.0f;
+    rightPowerGridBiasEnvelope = 0.0f;
 
     // Preamp-eko tonu-iragazkia: Miller efektua imitatzen du, drive handiko
     // waveshaping-ak sortutako goi-maiztasun zorrotzak leuntzeko
@@ -382,13 +394,13 @@ float AudioPluginAudioProcessor::valveDistortion(float x, float driveKnob, float
     if (x > 0.0f)
     {
         // Ziklo positiboa: compresio progresiboa
-        float compressed = x / (1.0f + x * 0.8f);
+        float compressed = x / (1.0f + x * 1.6f);
         return compressed;
     }
     else
     {
         // Ziklo negatiboa: bortitzagoa
-        float compressed = x / (1.0f + std::abs(x) * 1.2f);
+        float compressed = x / (1.0f + std::abs(x) * 2.4f);
         return compressed - asymmetry * 0.5f;
     }
 }
@@ -403,7 +415,7 @@ void AudioPluginAudioProcessor::applyDistortionOversampled(juce::dsp::AudioBlock
     for (size_t channel = 0; channel < block.getNumChannels(); ++channel)
     {
         auto* channelData = block.getChannelPointer(channel);
-        float& gridBiasEnvelope = (channel == 0) ? leftGridBiasEnvelope : rightGridBiasEnvelope;
+        float& gridBiasEnvelope = (channel == 0) ? leftPreGridBiasEnvelope : rightPreGridBiasEnvelope;
 
         // Waveshaping aplikatu lagin bakoitzari
         for (size_t sample = 0; sample < block.getNumSamples(); ++sample)
@@ -412,7 +424,7 @@ void AudioPluginAudioProcessor::applyDistortionOversampled(juce::dsp::AudioBlock
 
             // Zuzenketa (rectification) asimetrikoa: ziklo positiboak bakarrik kargatzen du
             float rectified = juce::jmax(0.0f, x);
-            float coeff = (rectified > gridBiasEnvelope) ? gridBiasAttackCoeff : gridBiasReleaseCoeff;
+            float coeff = (rectified > gridBiasEnvelope) ? preGridBiasAttackCoeff : preGridBiasReleaseCoeff;
             gridBiasEnvelope += coeff * (rectified - gridBiasEnvelope);
 
             channelData[sample] = valveDistortion(x, drive, gridBiasEnvelope);
@@ -506,7 +518,7 @@ float AudioPluginAudioProcessor::tubeSag(float x, float threshold)
     if (absX > threshold)
     {
         float excess = absX - threshold;
-        float compressed = threshold + excess * 0.65f;
+        float compressed = threshold + excess * 0.3f;
         return (x > 0.0f) ? compressed : -compressed;
     }
     return x;
@@ -514,11 +526,11 @@ float AudioPluginAudioProcessor::tubeSag(float x, float threshold)
 
 float AudioPluginAudioProcessor::crossoverDistortion(float x, float amount)
 {
-    if (std::abs(x) < 0.05f)
+    if (std::abs(x) < 0.15f)
     {
         // Crossover ez-lineala (push-pull AB klasea)
         float sign = (x > 0.0f) ? 1.0f : -1.0f;
-        return sign * std::pow(std::abs(x) / 0.05f, 1.0f + amount * 0.5f) * 0.05f;
+        return sign * std::pow(std::abs(x) / 0.15f, 1.0f + amount * 2.5f) * 0.15f;
     }
     return x;
 }
@@ -540,13 +552,19 @@ void AudioPluginAudioProcessor::applyPowerAmpSaturation(juce::dsp::AudioBlock<fl
 {
     if (amount < 0.01f) return;
 
-    float sagThreshold = 0.75f - (amount * 0.2f);
-    float gridThreshold = 0.85f - (amount * 0.15f);
+    float sagThreshold = 0.09f - (amount * 0.03f);
+    float gridThreshold = 0.11f - (amount * 0.02f);
+
+    // --- seguimiento para el log, solo canal 0 ---
+    float debugPeakX = 0.0f;
+    float debugMinSagThresh = 1.0f;
+    float debugMinGridThresh = 1.0f;
 
     for (size_t channel = 0; channel < block.getNumChannels(); ++channel)
     {
         auto* channelData = block.getChannelPointer(channel);
         float& sagEnvelope = (channel == 0) ? leftSagEnvelope : rightSagEnvelope;
+        float& powerGridBiasEnvelope = (channel == 0) ? leftPowerGridBiasEnvelope : rightPowerGridBiasEnvelope;
 
         for (size_t sample = 0; sample < block.getNumSamples(); ++sample)
         {
@@ -556,12 +574,26 @@ void AudioPluginAudioProcessor::applyPowerAmpSaturation(juce::dsp::AudioBlock<fl
             x *= (1.0f + amount * 0.6f);
             x += amount * 0.06f;
 
+            // SAG-en jarraipen-inguratzailea
             float instantPower = x * x;
             float envCoeff = (instantPower > sagEnvelope) ? sagAttackCoeff : sagReleaseCoeff;
             sagEnvelope += envCoeff * (instantPower - sagEnvelope);
-
             float dynamicSagThreshold = sagThreshold - (std::sqrt(sagEnvelope) * amount * 0.15f);
-            dynamicSagThreshold = juce::jmax(0.1f, dynamicSagThreshold);
+            dynamicSagThreshold = juce::jmax(0.02f, dynamicSagThreshold);
+
+            // Grid current-en jarraipen-inguratzailea
+            float rectified = juce::jmax(0.0f, x);
+            float gridCoeff = (rectified > powerGridBiasEnvelope) ? powerGridBiasAttackCoeff : powerGridBiasReleaseCoeff;
+            powerGridBiasEnvelope += gridCoeff * (rectified - powerGridBiasEnvelope);
+            float dynamicGridThreshold = gridThreshold - (powerGridBiasEnvelope * 0.1f);
+            dynamicGridThreshold = juce::jmax(0.015f, dynamicGridThreshold);
+
+            if (channel == 0)
+            {
+                debugPeakX = juce::jmax(debugPeakX, std::abs(x));
+                debugMinSagThresh = juce::jmin(debugMinSagThresh, dynamicSagThreshold);
+                debugMinGridThresh = juce::jmin(debugMinGridThresh, dynamicGridThreshold);
+            }
 
             // 2. Crossover distortsioa
             if (amount > 0.3f)
@@ -572,17 +604,17 @@ void AudioPluginAudioProcessor::applyPowerAmpSaturation(juce::dsp::AudioBlock<fl
 
             // 4. Grid current
             if (amount > 0.7f)
-                x = gridCurrent(x, gridThreshold);
+                x = gridCurrent(x, dynamicGridThreshold);
 
             // 5. Waveshaping EL34-style asikemtrikoa
             if (x > dynamicSagThreshold) {
                 float excess = x - dynamicSagThreshold;
-                float softness = 1.5f + amount * 0.8f;
-                x = dynamicSagThreshold + std::tanh(excess * softness) / std::tanh(softness) * 0.25f;
+                float softness = 4.5f + amount * 0.8f;
+                x = dynamicSagThreshold + std::tanh(excess * softness) / std::tanh(softness) * 0.05f;
             }
             else if (x < -dynamicSagThreshold * 1.08f) {
                 float excess = -x - dynamicSagThreshold * 1.08f;
-                x = -(dynamicSagThreshold * 1.08f + excess / (1.0f + excess * (2.2f + amount * 0.6f)));
+                x = -(dynamicSagThreshold * 1.08f + excess / (1.0f + excess * (6.8f + amount * 0.6f)));
             }
 
             // 6. Armonikoak gehitu
@@ -597,6 +629,16 @@ void AudioPluginAudioProcessor::applyPowerAmpSaturation(juce::dsp::AudioBlock<fl
 
             channelData[sample] = x;
         }
+    }
+
+    static int logCounter = 0;
+    if (++logCounter >= 50)   // ~1 log por segundo, según tu block size / sample rate
+    {
+        logCounter = 0;
+        DBG("amount=" << amount
+            << " peakX=" << debugPeakX
+            << " sagThr=" << debugMinSagThresh
+            << " gridThr=" << debugMinGridThresh);
     }
 }
 

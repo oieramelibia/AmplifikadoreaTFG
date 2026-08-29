@@ -71,10 +71,17 @@ private:
     float rightSagEnvelope = 0.0f;
     float sagAttackCoeff = 0.0f;
     float sagReleaseCoeff = 0.0f;
-    float leftGridBiasEnvelope = 0.0f;
-    float rightGridBiasEnvelope = 0.0f;
-    float gridBiasAttackCoeff = 0.0f;
-    float gridBiasReleaseCoeff = 0.0f;
+
+    float leftPreGridBiasEnvelope = 0.0f;
+    float rightPreGridBiasEnvelope = 0.0f;
+    float preGridBiasAttackCoeff = 0.0f;
+    float preGridBiasReleaseCoeff = 0.0f;
+
+    float leftPowerGridBiasEnvelope = 0.0f;
+    float rightPowerGridBiasEnvelope = 0.0f;
+    float powerGridBiasAttackCoeff = 0.0f;
+    float powerGridBiasReleaseCoeff = 0.0f;
+
     float tubeSag(float x, float threshold);
     float crossoverDistortion(float x, float amount);
     float gridCurrent(float x, float threshold);
